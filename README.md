@@ -48,6 +48,7 @@ belong to monitor 0 and 5-9 to monitor 1. With three screens the groups are 1-3,
 the two-monitor setup; the installer adjusts the workspace section for the actual
 number of monitors.
 
+- `Alt+Arrow keys`: focus a window in that direction; `Alt+H/J/K/L` stay available for Neovim.
 - `Ctrl+Alt+Left/Right`: previous/next GlazeWM workspace on the focused monitor.
 - `Ctrl+Alt+H/L`: focus monitor 0/1 directly.
 - `Alt+1` through `Alt+9`: select a workspace.

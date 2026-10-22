@@ -175,15 +175,15 @@ binding_modes:
         bindings: ['escape', 'enter']
 
 keybindings:
-  # Shift focus in a given direction.
+  # Shift focus with arrows, keeping Alt+H/J/K/L available for Neovim.
   - commands: ['focus --direction left']
-    bindings: ['alt+h', 'alt+left']
+    bindings: ['alt+left']
   - commands: ['focus --direction right']
-    bindings: ['alt+l', 'alt+right']
+    bindings: ['alt+right']
   - commands: ['focus --direction up']
-    bindings: ['alt+k', 'alt+up']
+    bindings: ['alt+up']
   - commands: ['focus --direction down']
-    bindings: ['alt+j', 'alt+down']
+    bindings: ['alt+down']
 
   # Move focused window in a given direction.
   - commands: ['move --direction left']
