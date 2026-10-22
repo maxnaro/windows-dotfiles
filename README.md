@@ -14,6 +14,7 @@ dotfiles/
   windows/
     Apply.ps1           Back up and install the tracked Windows configuration
     Enable-Startup.ps1  Enable GlazeWM at sign-in for the current Windows user
+    Start-GlazeWM.cmd   Optional startup launcher with diagnostic logging
     config.yaml         GlazeWM configuration
     settings.json       Zebar startup configuration
     multimonitor/       Local copy of the Zebar starter widget pack
@@ -55,6 +56,21 @@ To enable or repair startup separately without restarting either app:
 
 To disable it, run `shell:startup` from `Win+R` and delete `GlazeWM.lnk`.
 Rerunning setup or the startup script enables it again.
+
+If startup fails while manual launch works, enable diagnostic logging:
+
+```powershell
+.\windows\Enable-Startup.ps1 -LogStartup
+```
+
+This keeps the same Startup folder entry and wraps the CLI launch with logging
+to `%USERPROFILE%\.glzr\glazewm\startup.log`. It records invocation times, command
+output, and exit codes. A zero CLI exit code confirms dispatch, not that GlazeWM
+became ready. After signing out and back in, check for a new invocation before
+launching GlazeWM manually. An unchanged or missing log means the diagnostic
+launcher wasn't reached; IT may need to trace the entry or check application
+control logs. This does not confirm a company policy block. Rerun the script
+without `-LogStartup` to restore the direct CLI shortcut.
 
 The monitor count is detected automatically. With two screens, workspaces 1-4
 belong to monitor 0 and 5-9 to monitor 1. With three screens the groups are 1-3,

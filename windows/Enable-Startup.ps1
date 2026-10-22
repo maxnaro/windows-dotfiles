@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$LogStartup
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -23,8 +25,20 @@ $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $glazeCli
 $shortcut.Arguments = 'start'
 $shortcut.WorkingDirectory = Split-Path -Parent $glazeCli
+if ($LogStartup) {
+    $launcherDir = Join-Path $env:USERPROFILE '.glzr\glazewm'
+    New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
+    $launcherPath = Join-Path $launcherDir 'Start-GlazeWM.cmd'
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Start-GlazeWM.cmd') -Destination $launcherPath -Force
+    $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\cmd.exe'
+    $shortcut.Arguments = '/d /s /c ""{0}" "{1}""' -f $launcherPath, $glazeCli
+    $shortcut.WorkingDirectory = $launcherDir
+}
 $shortcut.WindowStyle = 7
 $shortcut.Description = 'Start GlazeWM when you sign in.'
 $shortcut.Save()
 
-Write-Host "Enabled GlazeWM at sign-in: $shortcutPath"
+Write-Host "Registered GlazeWM startup entry: $shortcutPath"
+if ($LogStartup) {
+    Write-Host "Startup log: $(Join-Path $launcherDir 'startup.log')"
+}
