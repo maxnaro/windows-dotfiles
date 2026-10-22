@@ -13,6 +13,7 @@ dotfiles/
   setup-wsl.ps1         Bootstrap the existing Linux dotfiles inside WSL
   windows/
     Apply.ps1           Back up and install the tracked Windows configuration
+    Enable-Startup.ps1  Enable GlazeWM at sign-in for the current Windows user
     config.yaml         GlazeWM configuration
     settings.json       Zebar startup configuration
     multimonitor/       Local copy of the Zebar starter widget pack
@@ -41,6 +42,17 @@ manager and bar. Existing configuration and the local bar are backed up under
 `%USERPROFILE%\.glzr\backups\multimonitor-<timestamp>` on every run. Future edits
 belong in this repository; rerunning setup copies them into place. No symlinks
 or administrator privileges are required for the Windows setup.
+
+Setup also creates `GlazeWM.lnk` in your Windows user Startup folder so GlazeWM
+starts automatically when you sign in. GlazeWM launches Zebar through its existing
+startup command. To enable startup separately without restarting either app:
+
+```powershell
+.\windows\Enable-Startup.ps1
+```
+
+To disable it, run `shell:startup` from `Win+R` and delete `GlazeWM.lnk`.
+Rerunning setup or the startup script enables it again.
 
 The monitor count is detected automatically. With two screens, workspaces 1-4
 belong to monitor 0 and 5-9 to monitor 1. With three screens the groups are 1-3,

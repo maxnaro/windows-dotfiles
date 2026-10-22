@@ -36,6 +36,7 @@ foreach ($app in @('glazewm', 'zebar')) {
 }
 
 & (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart
+& (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1')
 
 if ($WithWsl) {
     & (Join-Path $PSScriptRoot 'setup-wsl.ps1') -Distribution $Distribution -Repository $LinuxDotfilesRepository
