@@ -44,8 +44,10 @@ belong in this repository; rerunning setup copies them into place. No symlinks
 or administrator privileges are required for the Windows setup.
 
 Setup also creates `GlazeWM.lnk` in your Windows user Startup folder so GlazeWM
-starts automatically when you sign in. GlazeWM launches Zebar through its existing
-startup command. To enable startup separately without restarting either app:
+starts automatically when you sign in. The shortcut runs `glazewm start` through
+the bundled CLI, which handles the main executable's Windows UIAccess launch
+requirements. GlazeWM launches Zebar through its existing startup command.
+To enable or repair startup separately without restarting either app:
 
 ```powershell
 .\windows\Enable-Startup.ps1
