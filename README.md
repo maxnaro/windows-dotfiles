@@ -116,7 +116,10 @@ GlazeWM uses matching amber focused-window borders and brown inactive borders.
 Zebar uses **JetBrains Mono Nerd Font** at 12px, including workspace labels and
 text buttons. It is already installed on this PC as `JetBrainsMono NF`. On another
 PC, install the font in Windows; a font installed only inside WSL is not available
-to Zebar. Nerd Font icons retain their separate web font.
+to Zebar. Status icons use bundled Lucide SVGs at 16px with a consistent stroke
+and alignment, independently of the text font. They are shared by all three bar
+variants and do not download an icon font. Their license is bundled at
+`windows/multimonitor/resources/lucide-LICENSE`.
 
 To use **Adobe Utopia**, install it in Windows, then change these properties in
 the `:root` block of `windows/multimonitor/styles.css`:

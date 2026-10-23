@@ -59,7 +59,9 @@
       "transparent": true,
       "includeFiles": [
         "*.html",
-        "*.css"
+        "*.css",
+        "*.js",
+        "resources/icons.svg"
       ],
       "caching": {
         "defaultDuration": 604800,
@@ -97,7 +99,9 @@
       "transparent": true,
       "includeFiles": [
         "*.html",
-        "*.css"
+        "*.css",
+        "*.js",
+        "resources/icons.svg"
       ],
       "caching": {
         "defaultDuration": 604800,
@@ -135,7 +139,9 @@
       "transparent": true,
       "includeFiles": [
         "*.html",
-        "*.css"
+        "*.css",
+        "*.js",
+        "resources/icons.svg"
       ],
       "caching": {
         "defaultDuration": 604800,

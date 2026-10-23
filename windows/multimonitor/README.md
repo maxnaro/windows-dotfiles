@@ -1,6 +1,8 @@
-# Starter
+# Multimonitor
 
-A basic widget pack for testing and development.
+A Chocolatier-themed widget pack with a photo background and a bar on each
+monitor. All bar variants share local Lucide SVG icons through `icons.js` and
+`resources/icons.svg`; see `resources/lucide-LICENSE` for attribution.
 
 ## Widgets
 

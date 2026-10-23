@@ -1,9 +1,3 @@
-/**
- * Import the Nerdfonts icon font.
- * Ref https://www.nerdfonts.com/cheat-sheet for a cheatsheet of available Nerdfonts icons.
- */
-@import 'https://www.nerdfonts.com/assets/css/webfont.css';
-
 :root {
   /* Chocolatier / Kimbie Dark+ palette, independent of the Windows theme.
    * https://github.com/qaptoR-nvim/chocolatier.nvim
@@ -19,7 +13,7 @@
    */
   --utopia-font-family: 'Utopia', 'Utopia Std', 'Adobe Utopia', Georgia, serif;
   --text-size: 12px;
-  --icon-size: 13px;
+  --icon-size: 16px;
 
   --background: #221a0f;
   --surface: #362712;
@@ -35,9 +29,17 @@
   --red: #f14a68;
 }
 
-i {
-  margin-right: 7px;
-  font-size: var(--icon-size);
+.icon {
+  display: inline-block;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  flex-shrink: 0;
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   color: var(--teal);
 }
 
@@ -50,7 +52,7 @@ body {
   overflow: hidden;
 }
 
-/* Text buttons inherit the bar font; .nf keeps its separate icon font. */
+/* Text buttons inherit the bar font; icons use their own SVG geometry. */
 button {
   font: inherit;
 }
@@ -97,6 +99,17 @@ body,
 
 .right {
   justify-self: end;
+}
+
+.network,
+.memory,
+.cpu,
+.battery,
+.weather {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
 }
 
 .logo,
@@ -165,6 +178,16 @@ button:focus-visible {
   color: var(--accent);
 }
 
+.tiling-direction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tiling-direction .icon {
+  color: inherit;
+}
+
 .tiling-direction:hover,
 .binding-mode:hover,
 .paused-button:hover {
@@ -176,30 +199,20 @@ button:focus-visible {
 }
 
 .logo,
-.cpu i {
+.cpu .icon {
   color: var(--accent);
 }
 
-.memory i,
-.battery i {
+.memory .icon,
+.battery .icon {
   color: var(--green);
 }
 
-.weather i {
+.weather .icon {
   color: var(--orange);
 }
 
-.cpu .high-usage {
+.cpu .high-usage,
+.battery .low-battery {
   color: var(--red);
-}
-
-.battery {
-  position: relative;
-}
-
-.battery .charging-icon {
-  position: absolute;
-  font-size: 7px;
-  left: -8px;
-  top: 3px;
 }
