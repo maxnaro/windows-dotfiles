@@ -105,6 +105,41 @@ alone does not create all of those workspaces.
 For changes limited to gaps, keybindings, or window rules, press `Alt+Shift+R`
 after installing the config to reload GlazeWM without restarting it.
 
+## Chocolatier / Kimbie appearance
+
+The bar uses a fixed dark chocolate background, cream text, amber active
+workspaces, and muted green/teal status icons, inspired by
+[Chocolatier](https://github.com/qaptoR-nvim/chocolatier.nvim) and
+[Kimbie Dark+](https://marketplace.visualstudio.com/items?itemName=dnamsons.kimbie-dark-plus).
+GlazeWM uses matching amber focused-window borders and brown inactive borders.
+
+Zebar uses **JetBrains Mono Nerd Font** at 12px, including workspace labels and
+text buttons. It is already installed on this PC as `JetBrainsMono NF`. On another
+PC, install the font in Windows; a font installed only inside WSL is not available
+to Zebar. Nerd Font icons retain their separate web font.
+
+To use **Adobe Utopia**, install it in Windows, then change these properties in
+the `:root` block of `windows/multimonitor/styles.css`:
+
+```css
+--font-family: var(--utopia-font-family);
+--text-size: 16px;
+```
+
+The Utopia stack includes `Utopia`, `Utopia Std`, and `Adobe Utopia`; adjust the
+family name to match your installed font if needed. The palette also lives in
+that `:root` block; matching window borders are in `windows/config.yaml`.
+
+Apply appearance changes from a Windows PowerShell window with:
+
+```powershell
+.\windows\Apply.ps1
+```
+
+This backs up the live configuration, copies the tracked files, and restarts
+GlazeWM and Zebar. Application windows stay open. A GlazeWM config reload alone
+does not reload Zebar's CSS.
+
 ## Spotlight-style app search
 
 PowerToys is already installed on this PC, starts with Windows, and has PowerToys

@@ -5,59 +5,54 @@
 @import 'https://www.nerdfonts.com/assets/css/webfont.css';
 
 :root {
+  /* Chocolatier / Kimbie Dark+ palette, independent of the Windows theme.
+   * https://github.com/qaptoR-nvim/chocolatier.nvim
+   * https://marketplace.visualstudio.com/items?itemName=dnamsons.kimbie-dark-plus
+   */
+  color-scheme: dark;
+
+  --font-family: 'JetBrainsMono NF', 'JetBrainsMono Nerd Font',
+    'JetBrainsMono NFM', 'JetBrainsMono Nerd Font Mono', 'JetBrains Mono',
+    'Cascadia Mono', monospace;
+  /* For Adobe Utopia, set --font-family: var(--utopia-font-family)
+   * and --text-size: 16px after installing the font in Windows.
+   */
+  --utopia-font-family: 'Utopia', 'Utopia Std', 'Adobe Utopia', Georgia, serif;
   --text-size: 12px;
-  --icon-size: 12px;
+  --icon-size: 13px;
 
-  --text-color-light: rgba(0 0 0 / 95%);
-  --text-color-dark: rgba(255 255 255 / 95%);
-
-  --icon-color-light: LightSteelBlue;
-  --icon-color-dark: rgba(115 130 175 / 95%);
-
-  --background-color-light: rgba(238 238 238 / 90%);
-  --background-color-dark: linear-gradient(
-    rgb(0 0 0 / 90%),
-    rgb(5 2 20 / 85%)
-  );
-}
-
-@media (prefers-color-scheme: light) {
-  body {
-    color: var(--text-color-light);
-  }
-
-  i {
-    color: var(--icon-color-light);
-  }
-
-  #root {
-    background: var(--background-color-light);
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  body {
-    color: var(--text-color-dark);
-  }
-
-  i {
-    color: var(--icon-color-dark);
-  }
-
-  #root {
-    background: var(--background-color-dark);
-  }
+  --background: #221a0f;
+  --surface: #362712;
+  --surface-active: #4e3819;
+  --border: #644c2c;
+  --foreground: #d3af86;
+  --foreground-bright: #ebc295;
+  --foreground-muted: #aa8c6b;
+  --accent: #f4aa2b;
+  --orange: #f79a32;
+  --green: #889b4a;
+  --teal: #83a598;
+  --red: #f14a68;
 }
 
 i {
   margin-right: 7px;
   font-size: var(--icon-size);
+  color: var(--teal);
 }
 
 body {
-  font-family: ui-monospace, monospace;
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-family);
   font-size: var(--text-size);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
+}
+
+/* Text buttons inherit the bar font; .nf keeps its separate icon font. */
+button {
+  font: inherit;
 }
 
 div,
@@ -74,10 +69,13 @@ body,
 }
 
 #root {
-  border-bottom: 1px solid rgb(255 255 255 / 5%);
+  box-sizing: border-box;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
 }
 
 .app {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   align-items: center;
@@ -94,6 +92,7 @@ body,
 
 .center {
   justify-self: center;
+  color: var(--foreground-bright);
 }
 
 .right {
@@ -117,30 +116,44 @@ body,
 }
 
 .workspace {
-  background: rgb(255 255 255 / 5%);
+  background: var(--surface);
   margin-right: 4px;
   padding: 4px 8px;
-  color: rgb(255 255 255 / 90%);
-  border: none;
-  border-radius: 2px;
+  color: var(--foreground-muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
+}
 
-  &.displayed {
-    background: rgb(255 255 255 / 15%);
-  }
+.workspace.displayed {
+  background: var(--surface-active);
+  color: var(--foreground-bright);
+  border-color: var(--border);
+}
 
-  &.focused,
-  &:hover {
-    background: rgb(75 115 255 / 50%);
-  }
+.workspace:hover {
+  background: var(--surface-active);
+  color: var(--foreground-bright);
+  border-color: var(--accent);
+}
+
+.workspace.focused {
+  background: var(--accent);
+  color: var(--background);
+  border-color: var(--accent);
+}
+
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .binding-mode,
 .tiling-direction,
 .paused-button {
-  background: rgb(255 255 255 / 15%);
-  color: rgb(255 255 255 / 90%);
-  border-radius: 2px;
+  background: var(--surface-active);
+  color: var(--foreground-bright);
+  border-radius: 4px;
   line-height: 1;
   padding: 4px 8px;
   border: 0;
@@ -149,10 +162,35 @@ body,
 
 .binding-mode {
   margin-right: 4px;
+  color: var(--accent);
+}
+
+.tiling-direction:hover,
+.binding-mode:hover,
+.paused-button:hover {
+  background: var(--border);
+}
+
+.paused-button {
+  color: var(--red);
+}
+
+.logo,
+.cpu i {
+  color: var(--accent);
+}
+
+.memory i,
+.battery i {
+  color: var(--green);
+}
+
+.weather i {
+  color: var(--orange);
 }
 
 .cpu .high-usage {
-  color: #900029;
+  color: var(--red);
 }
 
 .battery {

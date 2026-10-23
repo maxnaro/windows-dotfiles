@@ -55,13 +55,14 @@ gaps:
     left: '6px'
 
 window_effects:
+  # Warm Chocolatier / Kimbie accents to match Zebar's styles.css palette.
   # Visual effects to apply to the focused window.
   focused_window:
     # Highlight the window with a colored border.
     # ** Exclusive to Windows 11 due to API limitations.
     border:
       enabled: true
-      color: '#8dbcff'
+      color: '#f4aa2b'
 
     # Remove the title bar from the window's frame. Note that this can
     # cause rendering issues for some applications.
@@ -86,7 +87,7 @@ window_effects:
   other_windows:
     border:
       enabled: true
-      color: '#a1a1a1'
+      color: '#644c2c'
     hide_title_bar:
       enabled: false
     corner_style:
