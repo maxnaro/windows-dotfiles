@@ -14,7 +14,7 @@ dotfiles/
   windows/
     Apply.ps1           Back up and install the tracked Windows configuration
     Enable-Startup.ps1  Enable GlazeWM at sign-in for the current Windows user
-    Start-GlazeWM.cmd   Optional startup launcher with diagnostic logging
+    Start-GlazeWM.cmd   Startup launcher with logging and duplicate prevention
     config.yaml         GlazeWM configuration
     settings.json       Zebar startup configuration
     multimonitor/       Local copy of the Zebar starter widget pack
@@ -44,33 +44,30 @@ manager and bar. Existing configuration and the local bar are backed up under
 belong in this repository; rerunning setup copies them into place. No symlinks
 or administrator privileges are required for the Windows setup.
 
-Setup also creates `GlazeWM.lnk` in your Windows user Startup folder so GlazeWM
-starts automatically when you sign in. The shortcut runs `glazewm start` through
-the bundled CLI, which handles the main executable's Windows UIAccess launch
-requirements. GlazeWM launches Zebar through its existing startup command.
+Setup registers a `GlazeWM` scheduled task for your Windows account. It runs
+10 seconds after you sign in, with normal user privileges and no stored password.
+The task runs on battery power and does not wait for the computer to become idle.
+This avoids the long delay observed with the Windows Startup folder. The launcher
+checks whether GlazeWM already responds before starting it, so a manual launch
+does not cause a duplicate-instance popup later. GlazeWM launches Zebar through
+its existing startup command.
+
 To enable or repair startup separately without restarting either app:
 
 ```powershell
 .\windows\Enable-Startup.ps1
 ```
 
-To disable it, run `shell:startup` from `Win+R` and delete `GlazeWM.lnk`.
+The installer backs up the previous `GlazeWM.lnk` Startup-folder entry under
+`%USERPROFILE%\.glzr\backups\startup-task-<timestamp>` after the task is registered.
+If task registration is denied, it leaves the existing shortcut in place and
+reports the error. A company restriction on task registration requires IT help.
+
+Startup logging is always enabled at `%USERPROFILE%\.glzr\glazewm\startup.log`.
+It records invocation times, skipped duplicate launches, command output, and exit
+codes. A zero CLI exit code confirms dispatch, not that GlazeWM became ready.
+To disable startup, open Task Scheduler and disable the `GlazeWM` task.
 Rerunning setup or the startup script enables it again.
-
-If startup fails while manual launch works, enable diagnostic logging:
-
-```powershell
-.\windows\Enable-Startup.ps1 -LogStartup
-```
-
-This keeps the same Startup folder entry and wraps the CLI launch with logging
-to `%USERPROFILE%\.glzr\glazewm\startup.log`. It records invocation times, command
-output, and exit codes. A zero CLI exit code confirms dispatch, not that GlazeWM
-became ready. After signing out and back in, check for a new invocation before
-launching GlazeWM manually. An unchanged or missing log means the diagnostic
-launcher wasn't reached; IT may need to trace the entry or check application
-control logs. This does not confirm a company policy block. Rerun the script
-without `-LogStartup` to restore the direct CLI shortcut.
 
 The monitor count is detected automatically. With two screens, workspaces 1-4
 belong to monitor 0 and 5-9 to monitor 1. With three screens the groups are 1-3,

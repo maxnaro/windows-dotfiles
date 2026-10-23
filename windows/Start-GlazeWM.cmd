@@ -16,6 +16,11 @@ if not exist "%glazewm_startup_cli%" (
     echo ERROR: GlazeWM CLI not found: "%glazewm_startup_cli%"
     exit /b 2
 )
+"%glazewm_startup_cli%" query monitors >nul 2>&1
+if not errorlevel 1 (
+    echo [%date% %time%] GlazeWM already running; skipping launch.
+    exit /b 0
+)
 echo Launching: "%glazewm_startup_cli%" start
 "%glazewm_startup_cli%" start
 set "glazewm_startup_result=%errorlevel%"
