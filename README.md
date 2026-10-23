@@ -140,6 +140,27 @@ This backs up the live configuration, copies the tracked files, and restarts
 GlazeWM and Zebar. Application windows stay open. A GlazeWM config reload alone
 does not reload Zebar's CSS.
 
+## Photo background
+
+Zebar also starts a `wallpaper` widget on every monitor, showing the bundled
+Coniston photo in `windows/multimonitor/resources/coniston.jpg`. The photo fills
+each screen with a centred crop and keeps its original proportions. Replace that
+file to use another picture, then run `.\windows\Apply.ps1`.
+
+The widget stays at the bottom of the window stack, does not reserve screen
+space, and passes mouse clicks through to the desktop. It is an app-rendered
+background; it does not change the Windows wallpaper or management policies.
+The image is local; the click-through API uses the same cached Zebar JavaScript
+module as the status bar.
+
+As a desktop widget, the photo can cover desktop icons, and `Win+D` may reveal
+the underlying Windows wallpaper. Exiting Zebar also removes the photo overlay.
+
+To stop it immediately, open Zebar's tray menu, then `Widget packs` >
+`multimonitor` > `wallpaper` and stop the `default` preset. To disable it across
+future setup runs, remove the `wallpaper` entry from `windows/settings.json` and
+rerun `.\windows\Apply.ps1`.
+
 ## Spotlight-style app search
 
 PowerToys is already installed on this PC, starts with Windows, and has PowerToys

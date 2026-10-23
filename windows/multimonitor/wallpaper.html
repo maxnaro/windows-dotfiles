@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coniston background</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #221a0f;
+      }
+
+      img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
+        pointer-events: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <img
+      src="./resources/coniston.jpg"
+      alt="Coniston fells, Low Water and Coppermines Valley"
+      draggable="false"
+    />
+    <script type="module">
+      import { currentWidget } from 'https://esm.sh/zebar@3.0';
+
+      // Pass desktop clicks through the native window, not just its HTML.
+      const appWindow = currentWidget().window.tauri;
+      try {
+        await appWindow.setIgnoreCursorEvents(true);
+        await appWindow.setSkipTaskbar(true);
+      } catch (error) {
+        console.error('Could not configure background window:', error);
+      }
+    </script>
+  </body>
+</html>

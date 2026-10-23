@@ -3,6 +3,11 @@
   "startupConfigs": [
     {
       "pack": "multimonitor",
+      "widget": "wallpaper",
+      "preset": "default"
+    },
+    {
+      "pack": "multimonitor",
       "widget": "with-glazewm",
       "preset": "default"
     }
