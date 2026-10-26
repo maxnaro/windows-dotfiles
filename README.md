@@ -258,6 +258,17 @@ To configure already-installed packages independently:
 .\windows\Configure-Launcher.ps1
 ```
 
+The command also installs and selects the fixed Chocolatier theme in portable
+`UserData/Themes`, matching GlazeWM's Kimbie palette: chocolate background,
+brown selection, cream text, muted subtitles, and amber borders and accents.
+The search overlay uses JetBrainsMono NF with Cascadia Mono fallback, 18px query
+text, 14px titles, 12px subtitles, 4px corners, a 580px width, a 42px query box,
+and 48px result rows. The clock, date, search icon, and result scrollbar are
+hidden; mouse-wheel and keyboard scrolling remain available. Flow's settings
+window keeps its existing typography.
+Theme installation and the previous theme selection are included in the backup;
+restoring a first installation removes the custom theme file.
+
 Use `-NoStart` to configure without launching either application. Setup's
 `-NoRestart` also passes this flag; configuration still closes running launchers
 before editing their settings. Launch them manually afterward.

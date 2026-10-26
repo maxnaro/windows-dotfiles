@@ -74,6 +74,19 @@ $ini = Set-IniValues $ini ([ordered]@{
 Write-SettingText $iniPath $ini
 $settingsPath = Join-Path $flowData 'Settings\Settings.json'
 $settings = Read-SettingJson $settingsPath
+# Keep custom themes in portable UserData so Flow updates retain them.
+$themePath = Join-Path $flowData 'Themes\Chocolatier.xaml'
+Write-SettingText $themePath ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'flow-launcher\Chocolatier.xaml')))
+Set-JsonProperty $settings 'Theme' 'Chocolatier'
+Set-JsonProperty $settings 'UseClock' $false
+Set-JsonProperty $settings 'UseDate' $false
+# WPF font family lists fall back when the first family lacks a glyph or is absent.
+foreach ($property in @('QueryBoxFont', 'ResultFont', 'ResultSubFont')) {
+    Set-JsonProperty $settings $property 'JetBrainsMono NF, Cascadia Mono'
+}
+Set-JsonProperty $settings 'QueryBoxFontSize' 18
+Set-JsonProperty $settings 'ResultItemFontSize' 14
+Set-JsonProperty $settings 'ResultSubItemFontSize' 12
 Set-JsonProperty $settings 'Hotkey' 'Alt + Space'
 Set-JsonProperty $settings 'HideOnStartup' $true
 Set-JsonProperty $settings 'FirstLaunch' $false
