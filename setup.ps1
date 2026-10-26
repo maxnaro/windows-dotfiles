@@ -3,6 +3,9 @@ param(
     [ValidateRange(0, 9)]
     [int]$MonitorCount = 0,
     [switch]$NoRestart,
+    [switch]$WithLauncher,
+    [switch]$StartupDiagnostics,
+    [switch]$WithoutZebar,
     [switch]$WithWsl,
     [string]$Distribution = 'UbuntuNC',
     [string]$LinuxDotfilesRepository = ''
@@ -35,8 +38,18 @@ foreach ($app in @('glazewm', 'zebar')) {
     }
 }
 
-& (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart
-& (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1')
+& (Join-Path $PSScriptRoot 'windows\Configure-Desktop.ps1')
+& (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart -WithoutZebar:$WithoutZebar
+& (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1') -Diagnostics:$StartupDiagnostics
+
+if ($WithLauncher) {
+    foreach ($app in @('flow-launcher', 'everything')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $scoopRoot "apps\$app\current"))) {
+            Invoke-Scoop -Arguments @('install', "extras/$app")
+        }
+    }
+    & (Join-Path $PSScriptRoot 'windows\Configure-Launcher.ps1') -NoStart:$NoRestart
+}
 
 if ($WithWsl) {
     & (Join-Path $PSScriptRoot 'setup-wsl.ps1') -Distribution $Distribution -Repository $LinuxDotfilesRepository

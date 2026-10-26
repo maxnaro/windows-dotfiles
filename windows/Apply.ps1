@@ -2,7 +2,8 @@
 param(
     [ValidateRange(0, 9)]
     [int]$MonitorCount = 0,
-    [switch]$NoRestart
+    [switch]$NoRestart,
+    [switch]$WithoutZebar
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,9 @@ for ($number = 1; $number -le 9; $number++) {
 }
 $workspaceBlock = ($workspaceLines -join "`r`n") + "`r`n`r`n"
 $config = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'config.yaml'))
+if ($WithoutZebar) {
+    $config = $config.Replace("startup_commands: ['shell-exec zebar']", 'startup_commands: []')
+}
 $workspacePattern = '(?ms)^workspaces:\r?\n.*?(?=^[a-z_]+:)'
 if ([regex]::Matches($config, $workspacePattern).Count -ne 1) {
     throw 'The prepared configuration does not contain exactly one workspace section.'
@@ -105,15 +109,15 @@ try {
     }
     $sessionId = (Get-Process -Id $PID).SessionId
     $runningGlaze = @(Get-Process -Name GlazeWM -ErrorAction SilentlyContinue |
-        Where-Object { $_.SessionId -eq $sessionId })
+        Where-Object { $_.SessionId -eq $sessionId -and $_.Path -notmatch '\\cli\\' })
     if ($runningGlaze.Count -gt 0) {
         & $glazeCli command wm-exit
         if ($LASTEXITCODE -ne 0) {
             throw 'GlazeWM did not accept the graceful exit command.'
         }
-        for ($attempt = 0; $attempt -lt 40; $attempt++) {
-            $runningGlaze = @(Get-Process -Name GlazeWM -ErrorAction SilentlyContinue |
-                Where-Object { $_.SessionId -eq $sessionId })
+        $exitingIds = @($runningGlaze | ForEach-Object { $_.Id })
+        for ($attempt = 0; $attempt -lt 120; $attempt++) {
+            $runningGlaze = @(Get-Process -Id $exitingIds -ErrorAction SilentlyContinue)
             if ($runningGlaze.Count -eq 0) { break }
             Start-Sleep -Milliseconds 250
         }
@@ -129,7 +133,7 @@ try {
     Start-Sleep -Seconds 3
     $runningZebar = @(Get-Process -Name zebar -ErrorAction SilentlyContinue |
         Where-Object { $_.SessionId -eq $sessionId })
-    if ($runningZebar.Count -eq 0) {
+    if (-not $WithoutZebar -and $runningZebar.Count -eq 0) {
         Start-Process -FilePath $zebarExe
         Start-Sleep -Seconds 2
     }

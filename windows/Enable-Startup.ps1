@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param()
+param([switch]$Diagnostics, [switch]$DisableDiagnostics)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($Diagnostics -and $DisableDiagnostics) { throw 'Choose either Diagnostics or DisableDiagnostics.' }
 
 $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE 'scoop' }
 $glazeCli = Join-Path $scoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
@@ -24,6 +25,10 @@ $launcherDir = Join-Path $env:USERPROFILE '.glzr\glazewm'
 New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
 $launcherPath = Join-Path $launcherDir 'Start-GlazeWM.cmd'
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Start-GlazeWM.cmd') -Destination $launcherPath -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Measure-GlazeWMStartup.ps1') -Destination $launcherDir -Force
+$diagnosticFlag = Join-Path $launcherDir 'diagnostics.enabled'
+if ($Diagnostics) { Set-Content -LiteralPath $diagnosticFlag -Value 'startup' -Encoding ASCII }
+if ($DisableDiagnostics -and (Test-Path -LiteralPath $diagnosticFlag)) { Remove-Item -LiteralPath $diagnosticFlag }
 
 # A logon task avoids Explorer's delayed processing of the Startup folder.
 $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\cmd.exe') `

@@ -37,7 +37,8 @@ Set-Location "$env:USERPROFILE\dotfiles"
 .\setup.ps1
 ```
 
-This installs missing GlazeWM/Zebar packages through Scoop, copies the tracked
+This disables PowerToys FancyZones (with a settings backup), installs missing
+GlazeWM/Zebar packages through Scoop, copies the tracked
 configuration into `%USERPROFILE%\.glzr`, and gracefully restarts the window
 manager and bar. Existing configuration and the local bar are backed up under
 `%USERPROFILE%\.glzr\backups\multimonitor-<timestamp>` on every run. Future edits
@@ -82,7 +83,7 @@ number of monitors.
 - `Alt+Shift+1` through `Alt+Shift+9`: move a window there and follow it.
 - `Alt+Q` or `Alt+Shift+Q`: close the focused window normally, allowing save prompts.
 - `Alt+F4`: the standard Windows close-window shortcut also works.
-- `Alt+Space`: open the existing PowerToys Run app launcher.
+- `Alt+Space`: open Flow Launcher when configured, otherwise PowerToys Run.
 - `Alt+C`: cycle focus between tiling, floating, and fullscreen windows.
 
 Zebar docks at the top of every monitor and shows that monitor's workspaces.
@@ -164,17 +165,131 @@ To stop it immediately, open Zebar's tray menu, then `Widget packs` >
 future setup runs, remove the `wallpaper` entry from `windows/settings.json` and
 rerun `.\windows\Apply.ps1`.
 
-## Spotlight-style app search
+## Startup lag diagnostics
 
-PowerToys is already installed on this PC, starts with Windows, and has PowerToys
-Run enabled with `Alt+Space`. Its Program plugin is enabled for app searches:
-press `Alt+Space`, type an app name, then press `Enter`. GlazeWM leaves that
-shortcut free and ignores the Run window so the launcher stays an overlay.
+FancyZones is disabled by setup so GlazeWM handles window arrangement. Other
+PowerToys utilities remain enabled unless you opt into the launcher replacement.
+To apply that change independently, run `.\windows\Configure-Desktop.ps1`.
+Settings backups are saved under `%USERPROFILE%\.glzr\backups\desktop-<timestamp>`.
 
-On a new PC, install [Microsoft PowerToys](https://learn.microsoft.com/en-us/windows/powertoys/install),
-enable Run and its Program plugin, and select `Alt+Space` as the activation shortcut.
-PowerToys must stay running in the background. The existing PowerToys settings
-are retained; setup only installs the GlazeWM and Zebar configuration.
+Enable a ten-minute diagnostic capture on each sign-in:
+
+```powershell
+.\windows\Enable-Startup.ps1 -Diagnostics
+```
+
+The launcher starts the collector before dispatching GlazeWM. Each capture writes
+JSON lines under `%USERPROFILE%\.glzr\glazewm\diagnostics`, recording timestamps,
+the first successful monitor query, query latency, total CPU and disk activity,
+and CPU/memory/I/O counters for GlazeWM, Zebar, WebView2 and launcher processes.
+Process CPU counters may exceed 100% across multiple cores. Probes time out after
+two seconds; only the diagnostic CLI process is killed. Missing performance
+counters are recorded as errors without stopping readiness measurements. Counters
+may take a little longer than the nominal capture duration to finish. Only one
+collector runs per Windows session. It does not change window layouts.
+
+For a short capture in the current session:
+
+```powershell
+.\windows\Measure-GlazeWMStartup.ps1 -DurationSeconds 30 -IntervalSeconds 5 -Label manual
+```
+
+A successful monitor query measures command responsiveness; it does not prove
+that keyboard focus changes or window movement feel responsive. Compare those
+interactions during the slow period as well as after stabilisation. Current-session
+measurements cannot reproduce a cold sign-in by themselves.
+
+If disabling FancyZones does not resolve the lag, compare another sign-in without
+Zebar (including its bar and wallpaper widgets):
+
+```powershell
+.\windows\Apply.ps1 -WithoutZebar
+```
+
+Run `.\windows\Apply.ps1` again to restore Zebar. These commands back up the live
+configuration and gracefully restart GlazeWM. Keep the default ten-second logon
+delay until the measurements show that changing it would help.
+
+Disable future captures with `.\windows\Enable-Startup.ps1 -DisableDiagnostics`.
+Ordinary setup preserves the diagnostics setting; old captures remain for comparison.
+
+## Spotlight-style app and filename search
+
+Install and configure Flow Launcher with portable Everything:
+
+```powershell
+.\setup.ps1 -WithLauncher
+```
+
+To also enable sign-in diagnostics, add `-StartupDiagnostics`. Complete a baseline
+comparison before introducing the indexer's initial scan when investigating lag.
+The optional launcher setup installs Scoop's `extras/flow-launcher` and standard
+`extras/everything` 1.4 packages. It never installs the Everything service or runs
+either app as administrator. [Folder indexing works without elevation](https://www.voidtools.com/en-au/support/everything/folder_indexing/).
+
+Flow uses `Alt+Space` for apps, files and folders. Its Explorer plugin uses
+Everything's index with an explicit executable path. GlazeWM ignores the launcher
+window so it remains an overlay. PowerToys Run and Command Palette are disabled;
+other utilities are retained. Both new apps get per-user Startup-folder shortcuts.
+Their search UI may become available later than GlazeWM's logon task.
+
+The first configuration indexes redirected Windows Documents and Desktop,
+Downloads, this repository, and OneDrive business-account roots. Overlapping roots
+are removed. Folder indexes only cover names readable by your account; they do not
+provide full-drive NTFS metadata indexing or document-content search. OneDrive
+results depend on the names exposed by the local sync client.
+
+The first scan can take several minutes. Folder monitoring detects live changes;
+a daily noon rescan catches missed changes. Missed scheduled scans do not run
+immediately at sign-in. Files changed while Everything was closed can therefore
+remain stale until the next rescan. Use Everything's **Tools > Options > Folders >
+Rescan All Now** for an immediate update. Missing/offline folders do not block
+other roots, but opening their results may be slow or fail.
+
+Edit folder selections and schedules in Everything's **Tools > Options > Folders**.
+Subsequent setup runs retain existing folder selections, schedules, unrelated
+settings, and the database. They reassert the no-elevation settings and Flow
+integration. The configuration script expects Scoop's portable settings, and
+refuses existing AppData-based Everything settings rather than silently replacing them.
+
+To configure already-installed packages independently:
+
+```powershell
+.\windows\Configure-Launcher.ps1
+```
+
+Use `-NoStart` to configure without launching either application. Setup's
+`-NoRestart` also passes this flag; configuration still closes running launchers
+before editing their settings. Launch them manually afterward.
+
+Each configuration prints a backup directory under
+`%USERPROFILE%\.glzr\backups\launcher-<timestamp>`. Restore settings and startup
+shortcuts with:
+
+```powershell
+.\windows\Restore-DesktopSettings.ps1 -BackupPath '<printed backup directory>'
+```
+
+Restore stops PowerToys and the launchers before copying settings. Relaunch the
+apps you want afterward. Restore backups newest first to undo multiple setup
+runs; restore the earlier `desktop-*` backup too if you want FancyZones back.
+Packages and indexes are retained. GlazeWM configuration has its separate
+`multimonitor-*` backup described below.
+
+Validate the configuration helpers and diagnostic timeout handling with:
+
+```powershell
+.\windows\tests\Test-DesktopSettings.ps1
+```
+
+With the launchers running, validate their settings, unelevated processes, and
+Everything searches and file creation/rename monitoring using Flow's bundled SDK:
+
+```powershell
+.\windows\tests\Test-Launcher.ps1
+```
+
+This briefly creates and removes a uniquely named test file in this repository.
 
 ## WSL setup from Windows
 

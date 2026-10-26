@@ -8,6 +8,9 @@ exit /b %errorlevel%
 
 :launch
 echo [%date% %time%] Startup launcher invoked.
+if exist "%~dp0diagnostics.enabled" (
+    start "" /b "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0Measure-GlazeWMStartup.ps1"
+)
 if not defined glazewm_startup_cli (
     echo ERROR: No GlazeWM CLI path was provided.
     exit /b 2

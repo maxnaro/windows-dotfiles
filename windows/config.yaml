@@ -144,6 +144,7 @@ window_rules:
 
       # Ignore rules for various 3rd-party apps.
       - window_process: { equals: 'PowerToys.PowerLauncher' }
+      - window_process: { equals: 'Flow.Launcher' }
       - window_process: { equals: 'PowerToys' }
         window_class: { regex: 'HwndWrapper\[PowerToys\.PowerAccent.*?\]' }
       - window_title: { equals: 'Command Palette' }
@@ -223,7 +224,7 @@ keybindings:
     bindings: ['alt+v']
 
   # Change focus from tiling windows -> floating -> fullscreen.
-  # Leave Alt+Space available for the existing PowerToys Run app launcher.
+  # Leave Alt+Space available for the app launcher (Flow or PowerToys Run).
   - commands: ['wm-cycle-focus']
     bindings: ['alt+c']
 
