@@ -145,7 +145,7 @@ function Register-DesktopStartup {
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Launcher executable not found: $exe" }
         }
     }
-    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
+    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Startup source missing: $file" }
     }
     $backup = New-SettingsBackup 'startup-task'
@@ -154,14 +154,14 @@ function Register-DesktopStartup {
 
     New-Item -ItemType Directory -Path $LauncherDirectory -Force | Out-Null
     # Install the implementation before switching the compatible CMD entry point.
-    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd')) {
+    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $LauncherDirectory -Force
     }
     . (Join-Path $PSScriptRoot 'HelperCache.ps1')
     Initialize-DesktopRuntime -Directory $LauncherDirectory -Build
-    $launcherPath = Join-Path $LauncherDirectory 'Start-GlazeWM.cmd'
-    $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\cmd.exe') `
-        -Argument ('/d /s /c ""{0}" "{1}""' -f $launcherPath, $glazeCli) -WorkingDirectory $LauncherDirectory
+    $launcherPath = Join-Path $LauncherDirectory 'Start-GlazeWM.vbs'
+    $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\wscript.exe') `
+        -Argument ('//B //Nologo "{0}" "{1}"' -f $launcherPath, $glazeCli) -WorkingDirectory $LauncherDirectory
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userSid
     $trigger.Delay = 'PT10S'
     $principal = New-ScheduledTaskPrincipal -UserId $userSid -LogonType Interactive -RunLevel Limited

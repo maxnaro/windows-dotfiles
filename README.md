@@ -75,16 +75,11 @@ are retained. If registration is denied, existing shortcuts and opt-in remain
 intact. A company restriction on task registration requires IT help.
 
 Startup logging is always enabled at `%USERPROFILE%\.glzr\glazewm\startup.log`.
-The startup terminal shows the same timestamped stages, readiness results, and
-errors as the log, with waiting updates every five seconds. GlazeWM WebSocket monitor
-queries time out after two seconds; all readiness checks share a forty-five-second
-overall deadline. Everything readiness means its IPC window responds, not that
-a full folder scan has finished. Flow readiness requires initialization markers
-from its current application process, including plugin initialization.
-On success, the summary stays visible for three seconds and the terminal closes.
-On failure or timeout, it shows the affected component and log location and waits
-for a keypress before closing with a nonzero exit code. Application processes
-are left running so late initialization can still finish.
+Startup runs invisibly through Windows Script Host. Timestamped stages, readiness
+results, and errors remain in the log. Readiness checks share a forty-five-second
+deadline. Success and failure both exit automatically; failures return a nonzero
+code to Task Scheduler without a dialog or keypress. Application processes remain
+running so late initialization can finish.
 To disable startup, open Task Scheduler and disable the `GlazeWM` task.
 Rerunning setup or the startup script enables it again.
 
@@ -217,7 +212,7 @@ Enable a ten-minute diagnostic capture on each sign-in:
 ```
 
 The launcher starts the collector in its own
-hidden process. Its ten-minute capture continues after the progress terminal closes;
+hidden process. Its ten-minute capture continues after startup exits;
 collector output and errors go to a separate `*-collector.log` in the diagnostics
 directory. Each capture writes
 JSON lines under `%USERPROFILE%\.glzr\glazewm\diagnostics`, recording timestamps,
@@ -398,8 +393,8 @@ and a short hidden collector. It checks launch ordering, duplicate prevention,
 errors and timeouts, Flow bootstrap handoff and current-process logs, shortcut
 migration/restore, and diagnostics continuing after the startup process exits.
 It does not register real tasks or restart installed apps. After repairing live
-startup, validate a fresh sign-in: tiling should respond promptly, the terminal
-should show progress and close, and `Alt+Space` should open Flow for app search.
+startup, validate a fresh sign-in: tiling should respond promptly, no startup terminal
+should appear, and `Alt+Space` should open Flow for app search.
 
 The Flow workspace suite tests capture, new/reused windows, focus restoration,
 cancellation, timeout expiry, and installation with and without Zebar. With GlazeWM

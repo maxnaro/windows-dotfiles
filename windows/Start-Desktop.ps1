@@ -294,7 +294,7 @@ function Invoke-DesktopStartup {
             Write-StartupStatus "Startup incomplete. Inspect $script:startupLog and Flow's UserData\Logs for details."
             return 1
         }
-        Write-StartupStatus 'Startup complete. This window will close automatically.'
+        Write-StartupStatus 'Startup complete.'
         return 0
     } catch {
         # Keep errors visible even if the log itself could not be opened.
@@ -326,6 +326,5 @@ if ($MyInvocation.InvocationName -ne '.') {
         $GlazeCli = Join-Path $scoop 'apps\glazewm\current\cli\GlazeWM.exe'
     }
     $result = Invoke-DesktopStartup -Cli $GlazeCli -CompanionsOnly:$CompanionsOnly
-    if ($result -eq 0) { Start-Sleep -Seconds 3 }
     exit $result
 }

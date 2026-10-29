@@ -43,7 +43,7 @@ public class DotfilesStartupFakeCli {
     Assert-True ($timer.Elapsed.TotalSeconds -lt 2) 'Timed-out query exceeded its bound.'
     Assert-True ((Invoke-StartupProbe (Join-Path $testRoot 'missing.exe')) -like 'monitor query error:*') 'Missing CLI was not reported.'
 
-    # The real CMD entry point must quote paths, close on success, and preserve failure codes after pause.
+    # The real CMD entry point must quote paths, close on success, and preserve failure codes without input.
     $entryDirectory = Join-Path $testRoot 'entry point'
     New-Item -ItemType Directory -Path $entryDirectory -Force | Out-Null
     $entry = Join-Path $entryDirectory 'Start-GlazeWM.cmd'
@@ -64,11 +64,6 @@ public class DotfilesStartupFakeCli {
             $null = $entryProcess.Start()
             $entryOutput = $entryProcess.StandardOutput.ReadToEndAsync()
             $entryError = $entryProcess.StandardError.ReadToEndAsync()
-            if ($exitCode -eq '7') {
-                Assert-True (-not $entryProcess.WaitForExit(2000)) 'Failed startup terminal closed before acknowledgement.'
-                $entryProcess.StandardInput.WriteLine(' ')
-                $entryProcess.StandardInput.Flush()
-            }
             Assert-True ($entryProcess.WaitForExit(5000)) 'Startup terminal did not close.'
             Assert-True ($entryProcess.ExitCode -eq [int]$exitCode) 'CMD entry point changed the exit code or CLI argument.'
             Assert-True ($entryOutput.Result.Contains('fixture startup summary')) 'CMD hid progress output.'
@@ -76,6 +71,16 @@ public class DotfilesStartupFakeCli {
             if (-not $entryProcess.HasExited) { $entryProcess.Kill() }
             $entryProcess.Dispose()
         }
+    }
+
+    Copy-Item (Join-Path $windows 'Start-GlazeWM.vbs') $entryDirectory
+    foreach ($exitCode in @('0', '7')) {
+        $env:DOTFILES_STARTUP_ENTRY_EXIT = $exitCode
+        $hidden = Start-Process (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('//B //Nologo "{0}" "{1}"' -f (Join-Path $entryDirectory 'Start-GlazeWM.vbs'), $cli) -PassThru
+        try {
+            Assert-True ($hidden.WaitForExit(10000)) 'Hidden launcher did not finish.'
+            Assert-True ($hidden.ExitCode -eq [int]$exitCode) 'Hidden launcher changed the exit code or CLI path.'
+        } finally { if (-not $hidden.HasExited) { $hidden.Kill() }; $hidden.Dispose() }
     }
 
     # Exercise orchestration independently of application IPC; the real probes are checked separately.
@@ -234,6 +239,8 @@ public class DotfilesStartupFakeCli {
             Assert-True ($Trigger.Delay -eq 'PT10S' -and $Principal.RunLevel -eq 'Limited') 'Task timing or privileges changed.'
             Assert-True ($Settings.Priority -eq 6) 'Interactive startup must use normal priority.'
             Assert-True ($Settings.MultipleInstances -eq 'IgnoreNew') 'Task permits duplicate invocations.'
+            Assert-True ($Action.Execute -like '*\wscript.exe') 'Task must use the console-free launcher.'
+            Assert-True ($Action.Arguments.Contains('Start-GlazeWM.vbs')) 'Task omitted hidden launcher.'
             Assert-True ($Action.Arguments.Contains($cli)) 'Task omitted the quoted CLI argument.'
         }
         Register-DesktopStartup -ScoopRoot $scoop -LauncherDirectory $installed -StartupDirectory $shortcuts -Diagnostics
@@ -243,7 +250,7 @@ public class DotfilesStartupFakeCli {
         Assert-True ((Read-SettingJson $config).ScoopRoot -eq $scoop) 'Legacy launcher opt-in was not migrated.'
         foreach ($name in $names) { Assert-True (-not (Test-Path -LiteralPath (Join-Path $shortcuts $name))) 'Migrated shortcut remains active.' }
         Assert-True (Test-Path -LiteralPath (Join-Path $shortcuts 'Keep.lnk')) 'Unrelated shortcut was removed.'
-        foreach ($name in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Measure-GlazeWMStartup.ps1')) {
+        foreach ($name in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1')) {
             Assert-True (Test-Path -LiteralPath (Join-Path $installed $name)) 'Startup implementation was not installed.'
         }
         Register-DesktopStartup -ScoopRoot $scoop -LauncherDirectory $installed -StartupDirectory $shortcuts

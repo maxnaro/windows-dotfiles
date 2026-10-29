@@ -5,6 +5,5 @@ title Desktop startup
 set "glazewm_startup_result=%errorlevel%"
 if not "%glazewm_startup_result%"=="0" (
     echo Startup needs attention. Log: "%~dp0startup.log"
-    pause
 )
 exit /b %glazewm_startup_result%
