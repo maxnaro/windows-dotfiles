@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "zebar": "3.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "linkedom": "0.18.9"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node ../../tests/Test-Bar.mjs"
+  }
+}

@@ -15,6 +15,7 @@ $data = Join-Path $app 'UserData'
 $settings = Read-SettingJson (Join-Path $data 'Settings\Settings.json')
 $explorer = Read-SettingJson (Join-Path $data 'Settings\Plugins\Flow.Launcher.Plugin.Explorer\Settings.json')
 Assert-True ($settings.Hotkey -eq 'Alt + Space') 'Flow hotkey is incorrect.'
+Assert-True ($settings.SearchWindowScreen -eq 'Focus') 'Flow is not following the focused monitor.'
 Assert-True ($settings.Theme -eq 'Chocolatier') 'Flow theme is incorrect.'
 foreach ($property in @('QueryBoxFont', 'ResultFont', 'ResultSubFont')) {
     Assert-True ($settings.$property -eq 'JetBrainsMono NF, Cascadia Mono') "Incorrect font: $property"

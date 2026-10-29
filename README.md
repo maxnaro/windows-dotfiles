@@ -14,7 +14,8 @@ dotfiles/
   windows/
     Apply.ps1           Back up and install the tracked Windows configuration
     Enable-Startup.ps1  Enable GlazeWM at sign-in for the current Windows user
-    Start-GlazeWM.cmd   Startup launcher with logging and duplicate prevention
+    Start-GlazeWM.cmd   Startup terminal entry point
+    Start-Desktop.ps1   Desktop startup progress, readiness checks and logging
     config.yaml         GlazeWM configuration
     settings.json       Zebar startup configuration
     multimonitor/       Local copy of the Zebar starter widget pack
@@ -48,25 +49,42 @@ or administrator privileges are required for the Windows setup.
 Setup registers a `GlazeWM` scheduled task for your Windows account. It runs
 10 seconds after you sign in, with normal user privileges and no stored password.
 The task runs on battery power and does not wait for the computer to become idle.
-This avoids the long delay observed with the Windows Startup folder. The launcher
-checks whether GlazeWM already responds before starting it, so a manual launch
-does not cause a duplicate-instance popup later. GlazeWM launches Zebar through
-its existing startup command.
+This avoids the long delay observed with the Windows Startup folder. The task
+explicitly uses normal interactive priority (6), rather than Task Scheduler's
+background-priority default. GlazeWM starts first. Companion dispatch is scheduled
+at offsets of five seconds for its workspace helper and Everything, eight seconds
+for Flow, twelve seconds for Zebar, and fifteen seconds for wallpaper verification
+or overlay startup. Offsets are best-effort under system load; they do not mean
+that every app finishes initialising within fifteen seconds. Existing processes
+in the current session are reused. Scheduled and manual GlazeWM launches share
+one orchestrator and session mutex; shutdown cancels pending launches.
 
-To enable or repair startup separately without restarting either app:
+To enable or repair startup separately without restarting running desktop apps:
 
 ```powershell
 .\windows\Enable-Startup.ps1
 ```
 
-The installer backs up the previous `GlazeWM.lnk` Startup-folder entry under
-`%USERPROFILE%\.glzr\backups\startup-task-<timestamp>` after the task is registered.
-If task registration is denied, it leaves the existing shortcut in place and
-reports the error. A company restriction on task registration requires IT help.
+The installer recognizes existing `Flow Launcher (dotfiles).lnk` and
+`Everything (dotfiles).lnk` shortcuts as launcher opt-in. It saves that opt-in and
+the Scoop root in `%USERPROFILE%\.glzr\glazewm\launcher-startup.json`, then retires
+the dotfiles launcher shortcuts and old `GlazeWM.lnk` after task registration
+succeeds. Backups, including a `files.json` manifest for the restore command, live
+under `%USERPROFILE%\.glzr\backups\startup-task-<timestamp>`. Unrelated shortcuts
+are retained. If registration is denied, existing shortcuts and opt-in remain
+intact. A company restriction on task registration requires IT help.
 
 Startup logging is always enabled at `%USERPROFILE%\.glzr\glazewm\startup.log`.
-It records invocation times, skipped duplicate launches, command output, and exit
-codes. A zero CLI exit code confirms dispatch, not that GlazeWM became ready.
+The startup terminal shows the same timestamped stages, readiness results, and
+errors as the log, with waiting updates every five seconds. GlazeWM WebSocket monitor
+queries time out after two seconds; all readiness checks share a forty-five-second
+overall deadline. Everything readiness means its IPC window responds, not that
+a full folder scan has finished. Flow readiness requires initialization markers
+from its current application process, including plugin initialization.
+On success, the summary stays visible for three seconds and the terminal closes.
+On failure or timeout, it shows the affected component and log location and waits
+for a keypress before closing with a nonzero exit code. Application processes
+are left running so late initialization can still finish.
 To disable startup, open Task Scheduler and disable the `GlazeWM` task.
 Rerunning setup or the startup script enables it again.
 
@@ -146,24 +164,44 @@ does not reload Zebar's CSS.
 
 ## Photo background
 
-Zebar also starts a `wallpaper` widget on every monitor, showing the bundled
-Coniston photo in `windows/multimonitor/resources/coniston.jpg`. The photo fills
-each screen with a centred crop and keeps its original proportions. Replace that
-file to use another picture, then run `.\windows\Apply.ps1`.
+Setup preserves the Coniston photo without automatically starting Zebar wallpaper
+widgets. `-WallpaperMode Auto` first uses Windows' `IDesktopWallpaper` API with a
+centred fill on every monitor. It verifies the result and falls back to one
+WinForms/GDI+ image-overlay process if the image cannot be applied. Managed
+wallpaper settings are not edited. An existing slideshow is preserved using the
+overlay instead of replacing it.
 
-The widget stays at the bottom of the window stack, does not reserve screen
-space, and passes mouse clicks through to the desktop. It is an app-rendered
-background; it does not change the Windows wallpaper or management policies.
-The image is local; the click-through API uses the same cached Zebar JavaScript
-module as the status bar.
+```powershell
+.\windows\Apply.ps1 -WallpaperMode Auto
+```
 
-As a desktop widget, the photo can cover desktop icons, and `Win+D` may reveal
-the underlying Windows wallpaper. Exiting Zebar also removes the photo overlay.
+`Native` requires the Windows wallpaper API to succeed; `Overlay` forces the
+native image renderer; `None` disables the custom background and restores the
+saved original wallpaper when switching from native mode. Subsequent runs retain
+an explicitly chosen mode when `-WallpaperMode` is omitted. `-WithoutZebar` only
+disables the bar; combine it with `-WallpaperMode None` for a minimal baseline.
 
-To stop it immediately, open Zebar's tray menu, then `Widget packs` >
-`multimonitor` > `wallpaper` and stop the `default` preset. To disable it across
-future setup runs, remove the `wallpaper` entry from `windows/settings.json` and
-rerun `.\windows\Apply.ps1`.
+The image is copied from `windows/multimonitor/resources/coniston.jpg` to
+`%USERPROFILE%\.glzr\glazewm\wallpaper.jpg`, independently of Zebar. Replace the
+source image and rerun Apply to change it. Original per-monitor wallpaper paths,
+position and background colour are backed up before a native change. In Auto
+mode, sign-in verifies the effective wallpaper and uses an overlay if Windows
+has replaced it; it does not repeatedly reapply native wallpaper.
+
+The overlay uses one non-activating, click-through window per monitor and redraws
+only when needed. It handles display changes and resume without browser views or
+remote scripts. As with the earlier overlay, it can cover desktop icons and
+`Win+D` may reveal the underlying Windows background. Stop it with:
+
+```powershell
+& "$env:USERPROFILE\.glzr\glazewm\Wallpaper.ps1" -Stop
+```
+
+Helpers are compiled into a source-hashed cache during configuration. Sign-in
+loads those assemblies without compiling. A missing cache requires rerunning
+Apply. `-NoRestart` installs the changes without restarting desktop apps; an
+explicit native-wallpaper change still takes effect immediately. Restart GlazeWM
+or sign out/in to activate staged startup and the new bar.
 
 ## Startup lag diagnostics
 
@@ -178,12 +216,25 @@ Enable a ten-minute diagnostic capture on each sign-in:
 .\windows\Enable-Startup.ps1 -Diagnostics
 ```
 
-The launcher starts the collector before dispatching GlazeWM. Each capture writes
+The launcher starts the collector in its own
+hidden process. Its ten-minute capture continues after the progress terminal closes;
+collector output and errors go to a separate `*-collector.log` in the diagnostics
+directory. Each capture writes
 JSON lines under `%USERPROFILE%\.glzr\glazewm\diagnostics`, recording timestamps,
 the first successful monitor query, query latency, total CPU and disk activity,
-and CPU/memory/I/O counters for GlazeWM, Zebar, WebView2 and launcher processes.
-Process CPU counters may exceed 100% across multiple cores. Probes time out after
-two seconds; only the diagnostic CLI process is killed. Missing performance
+and CPU/memory/I/O counters for desktop processes and the top CPU/I/O consumers.
+Memory samples use the native Windows API for available memory and commit usage/limit;
+paging activity is collected separately from performance counters.
+WebView2 processes are attributed using their host flag or process ancestry, so
+Outlook, Teams and Windows Search are distinguished from Zebar. Samples include
+base priorities and CPU normalised by logical processor count; the original raw
+CPU counter can still exceed 100%. Command lines are never saved.
+
+The default probe reuses a WebSocket connection and records connection time
+separately from query latency, with a two-second cancellation limit. The optional
+`-ProbeTransport Cli` retains the old subprocess measurement for comparison;
+its elapsed time includes process startup, which Windows may delay beyond the
+wait timeout. Only that probe process is killed on timeout. Missing performance
 counters are recorded as errors without stopping readiness measurements. Counters
 may take a little longer than the nominal capture duration to finish. Only one
 collector runs per Windows session. It does not change window layouts.
@@ -200,7 +251,7 @@ interactions during the slow period as well as after stabilisation. Current-sess
 measurements cannot reproduce a cold sign-in by themselves.
 
 If disabling FancyZones does not resolve the lag, compare another sign-in without
-Zebar (including its bar and wallpaper widgets):
+the Zebar bar:
 
 ```powershell
 .\windows\Apply.ps1 -WithoutZebar
@@ -230,8 +281,43 @@ either app as administrator. [Folder indexing works without elevation](https://w
 Flow uses `Alt+Space` for apps, files and folders. Its Explorer plugin uses
 Everything's index with an explicit executable path. GlazeWM ignores the launcher
 window so it remains an overlay. PowerToys Run and Command Palette are disabled;
-other utilities are retained. Both new apps get per-user Startup-folder shortcuts.
-Their search UI may become available later than GlazeWM's logon task.
+other utilities are retained. Both apps join GlazeWM's per-user scheduled task,
+bypassing the Startup folder's potentially lengthy delay. Existing dotfiles
+launcher shortcuts are migrated automatically by startup repair. To explicitly
+enable scheduled startup for already-configured launchers, use
+`.\windows\Enable-Startup.ps1 -WithLauncher`; ordinary repair preserves that opt-in.
+Simply installing the packages does not opt them in.
+
+Flow appears on the focused monitor. A hidden, unelevated workspace helper remembers
+the workspace displaying Flow and preserves it when Flow cloaks or hides. This
+keeps an empty workspace focused while the launched app is starting, even if
+Windows briefly reactivates a window on another workspace. New windows are brought
+to the invoking workspace; existing windows require matching result metadata.
+Reusing a browser or terminal brings its whole window, including its tabs.
+The helper recognizes Enter and clicks on accessible result rows; GlazeWM's
+`Alt+1..9` workspace shortcuts retain precedence over Flow's result shortcuts.
+Escape or toggling Flow closed cancels launch placement but restores the invoking
+workspace once. Clicking away, Alt+Tab, or deliberate workspace navigation releases
+the guard. A pending launch expires after ten seconds.
+
+The helper starts with GlazeWM, restarts on config reload, and stops with GlazeWM.
+It requires no extra runtime or administrator rights. Installation copies
+`Watch-FlowWorkspace.ps1` and `FlowWorkspace.cs` beside the installed GlazeWM config,
+including when Zebar is disabled. Its bounded diagnostic log is
+`%USERPROFILE%\.glzr\glazewm\flow-workspace.log`; searches and result titles are
+not logged. Result accessibility is optional for empty-workspace preservation and
+new-window placement. It is used only to identify reused windows and result clicks;
+unavailable metadata cannot block the handoff worker. Older windows reactivated
+by Windows stay on their original workspaces.
+
+To update placement alone in an existing installation, run
+`.\windows\Enable-FlowWorkspace.ps1`. It backs up the affected files, preserves
+existing workspace/layout settings and other startup commands, restarts a running
+Flow instance, and reloads GlazeWM. It stops the previous helper before replacing
+files and verifies the running version, source hash, and IPC readiness. Other
+application windows stay open. Its
+`-NoRestart` option still closes Flow before editing settings; launch Flow and press
+`Alt+Shift+R` afterward to activate the changes.
 
 The first configuration indexes redirected Windows Documents and Desktop,
 Downloads, this repository, and OneDrive business-account roots. Overlapping roots
@@ -275,7 +361,7 @@ before editing their settings. Launch them manually afterward.
 
 Each configuration prints a backup directory under
 `%USERPROFILE%\.glzr\backups\launcher-<timestamp>`. Restore settings and startup
-shortcuts with:
+ownership and any previous shortcuts with:
 
 ```powershell
 .\windows\Restore-DesktopSettings.ps1 -BackupPath '<printed backup directory>'
@@ -286,12 +372,47 @@ apps you want afterward. Restore backups newest first to undo multiple setup
 runs; restore the earlier `desktop-*` backup too if you want FancyZones back.
 Packages and indexes are retained. GlazeWM configuration has its separate
 `multimonitor-*` backup described below.
+Restoring a startup or launcher backup also restores the previous launcher
+opt-in file and shortcuts. The shared `GlazeWM` task remains registered; without
+the opt-in file it starts only GlazeWM. Disable the task separately to stop all
+startup managed by it.
 
 Validate the configuration helpers and diagnostic timeout handling with:
 
 ```powershell
 .\windows\tests\Test-DesktopSettings.ps1
+.\windows\tests\Test-Startup.ps1
+.\windows\tests\Test-StartupPerformance.ps1
+.\windows\tests\Test-FlowWorkspace.ps1
 ```
+
+The performance suite uses mocked wallpaper APIs and a loopback WebSocket server;
+it does not change the live wallpaper. It verifies fallback, cached loading,
+timeouts, fragmented responses, connection reuse and process attribution.
+The active bar has no runtime Babel/React or remote JavaScript dependency. Its
+pinned bundle and rebuild instructions are in `windows/multimonitor/vendor`.
+From that directory, `npm ci --ignore-scripts` then `npm test` runs its DOM tests.
+
+The startup suite uses disposable files, a fake CLI, mocked task registration,
+and a short hidden collector. It checks launch ordering, duplicate prevention,
+errors and timeouts, Flow bootstrap handoff and current-process logs, shortcut
+migration/restore, and diagnostics continuing after the startup process exits.
+It does not register real tasks or restart installed apps. After repairing live
+startup, validate a fresh sign-in: tiling should respond promptly, the terminal
+should show progress and close, and `Alt+Space` should open Flow for app search.
+
+The Flow workspace suite tests capture, new/reused windows, focus restoration,
+cancellation, timeout expiry, and installation with and without Zebar. With GlazeWM
+running and no workspace helper already active, add `-Live` to check IPC and the
+helper's duplicate prevention, reload, and shutdown. After applying live settings,
+launch an app through Flow from empty and occupied workspaces on both monitors,
+then repeat with an existing browser/terminal window and with Escape cancellation.
+The explicit `-LaunchApps` option automates these checks with a uniquely named,
+temporary GUI executable, including delayed startup from an empty workspace on
+each monitor. It verifies the exact Flow result, asserts that all pre-existing
+windows retain their workspaces, and restores the original focus afterward.
+The helper must already be running. Use Windows PowerShell's `-Mta` option for
+this UI Automation test.
 
 With the launchers running, validate their settings, unelevated processes, and
 Everything searches and file creation/rename monitoring using Flow's bundled SDK:
@@ -340,12 +461,23 @@ current networking configuration in place.
 ## Restore
 
 Close GlazeWM gracefully from its tray icon first so hidden windows are restored.
-Copy `config.yaml` and `settings.json` from the desired backup back to
+New configuration backups contain a `files.json` manifest and can be restored with:
+
+```powershell
+.\windows\Restore-DesktopSettings.ps1 -BackupPath "$env:USERPROFILE\.glzr\backups\multimonitor-<timestamp>"
+```
+
+This restores source/settings files, the widget pack, and any saved native
+wallpaper state. It stops companion apps before restoring; relaunch GlazeWM and
+any desired launchers afterward. `-NoRestart` restores files without stopping
+apps and is useful for isolated configuration tests. Native wallpaper restoration
+still takes effect immediately.
+
+For older backups without `files.json`, copy `config.yaml` and `settings.json` to
 `%USERPROFILE%\.glzr\glazewm\config.yaml` and
-`%USERPROFILE%\.glzr\zebar\settings.json`. If the backup contains a `multimonitor`
-folder, restore it to `%USERPROFILE%\.glzr\zebar\multimonitor`. The accompanying
-`previous-state.json` records whether each target existed before setup. Relaunch
-GlazeWM and Zebar after restoring the files.
+`%USERPROFILE%\.glzr\zebar\settings.json`, and the backed-up `multimonitor`
+folder to `%USERPROFILE%\.glzr\zebar\multimonitor`. Their `previous-state.json`
+records which targets originally existed.
 
 ## References
 

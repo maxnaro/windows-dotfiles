@@ -2,14 +2,17 @@ general:
   # Commands to run when the WM has started. This is useful for running a
   # script or launching another application.
   # Example: The below command launches Zebar.
-  startup_commands: ['shell-exec zebar']
+  startup_commands:
+    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -CompanionsOnly'
 
   # Commands to run just before the WM is shutdown.
   # Example: The below command kills Zebar.
-  shutdown_commands: ['shell-exec taskkill /IM zebar.exe /F']
+  shutdown_commands:
+    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -StopCompanions'
 
   # Commands to run after the WM config is reloaded.
-  config_reload_commands: []
+  config_reload_commands:
+    - 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1" -Restart'
 
   # Whether to automatically focus windows underneath the cursor.
   focus_follows_cursor: false
@@ -137,6 +140,8 @@ window_rules:
     match:
       # Ignores any Zebar windows.
       - window_process: { equals: 'zebar' }
+      - window_title: { equals: 'Dotfiles wallpaper' }
+        window_class: { regex: '^WindowsForms10\.' }
 
       # Ignores picture-in-picture windows for browsers.
       - window_title: { regex: '[Pp]icture.in.[Pp]icture' }

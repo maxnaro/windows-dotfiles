@@ -3,11 +3,15 @@ param(
     [ValidateRange(0, 9)]
     [int]$MonitorCount = 0,
     [switch]$NoRestart,
-    [switch]$WithoutZebar
+    [switch]$WithoutZebar,
+    [ValidateSet('Auto', 'Native', 'Overlay', 'None')][string]$WallpaperMode
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'DesktopSettings.ps1')
+. (Join-Path $PSScriptRoot 'HelperCache.ps1')
+. (Join-Path $PSScriptRoot 'Wallpaper.ps1')
 
 $configPath = Join-Path $env:USERPROFILE '.glzr\glazewm\config.yaml'
 $settingsPath = Join-Path $env:USERPROFILE '.glzr\zebar\settings.json'
@@ -33,7 +37,8 @@ for ($number = 1; $number -le 9; $number++) {
 $workspaceBlock = ($workspaceLines -join "`r`n") + "`r`n`r`n"
 $config = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'config.yaml'))
 if ($WithoutZebar) {
-    $config = $config.Replace("startup_commands: ['shell-exec zebar']", 'startup_commands: []')
+    $config = [regex]::Replace($config, '(?m)^    - ''shell-exec zebar''\r?\n', '')
+    $config = [regex]::Replace($config, '(?m)^    - ''shell-exec taskkill /IM zebar.exe /F''\r?\n', '')
 }
 $workspacePattern = '(?ms)^workspaces:\r?\n.*?(?=^[a-z_]+:)'
 if ([regex]::Matches($config, $workspacePattern).Count -ne 1) {
@@ -47,6 +52,20 @@ New-Item -ItemType Directory -Path $backupPath | Out-Null
 $hadConfig = Test-Path -LiteralPath $configPath -PathType Leaf
 $hadSettings = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $hadPack = Test-Path -LiteralPath $packPath -PathType Container
+$helperFiles = @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
+    'DesktopRuntime.cs', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
+$script:settingsBackup = $backupPath
+$script:backupEntries = @()
+foreach ($path in @($configPath, $settingsPath) + @($helperFiles | ForEach-Object { Join-Path (Split-Path -Parent $configPath) $_ })) { Save-SettingFile $path }
+# Build before changing the installed configuration. Cached assemblies are source-addressed.
+Initialize-DesktopRuntime -Directory (Split-Path -Parent $configPath) -Build
+
+$hadHelper = @{}
+foreach ($name in $helperFiles) {
+    $path = Join-Path (Split-Path -Parent $configPath) $name
+    $hadHelper[$name] = Test-Path -LiteralPath $path -PathType Leaf
+    if ($hadHelper[$name]) { Copy-Item -LiteralPath $path -Destination (Join-Path $backupPath $name) }
+}
 if ($hadConfig) {
     Copy-Item -LiteralPath $configPath -Destination (Join-Path $backupPath 'config.yaml')
 }
@@ -56,18 +75,35 @@ if ($hadSettings) {
 if ($hadPack) {
     Copy-Item -LiteralPath $packPath -Destination (Join-Path $backupPath 'multimonitor') -Recurse
 }
-@{ hadConfig = $hadConfig; hadSettings = $hadSettings; hadPack = $hadPack } |
+@{ hadConfig = $hadConfig; hadSettings = $hadSettings; hadPack = $hadPack; hadHelper = $hadHelper } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $backupPath 'previous-state.json') -Encoding UTF8
 
 try {
     New-Item -ItemType Directory -Path (Split-Path -Parent $configPath) -Force | Out-Null
     New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force | Out-Null
+    foreach ($name in @($helperFiles | Where-Object { $_ -notin @('desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json') })) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path (Split-Path -Parent $configPath) $name) -Force
+    }
     if ($hadPack) { Remove-Item -LiteralPath $packPath -Recurse -Force }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'multimonitor') -Destination $packPath -Recurse
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Destination $settingsPath
+    $installed = Split-Path -Parent $configPath
+    # Build the installed Flow cache too; the source-side cache is used by targeted updates/tests.
+    & (Join-Path $installed 'Watch-FlowWorkspace.ps1') -Build
+    if (-not $NoRestart) { Stop-DesktopWallpaper -Wait }
+    $image = Join-Path $installed 'wallpaper.jpg'
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'multimonitor\resources\coniston.jpg') -Destination $image -Force
+    $desktop = Set-DesktopWallpaperConfiguration -Mode $WallpaperMode -ImagePath $image -Directory $installed -BackupDirectory $backupPath
+    $desktop | Add-Member NoteProperty ZebarEnabled (-not $WithoutZebar)
+    [IO.File]::WriteAllText((Join-Path $installed 'desktop-startup.json'), ($desktop | ConvertTo-Json -Depth 8))
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($configPath, $config, $utf8)
 } catch {
+    foreach ($name in $helperFiles) {
+        $path = Join-Path (Split-Path -Parent $configPath) $name
+        if ($hadHelper[$name]) { Copy-Item -LiteralPath (Join-Path $backupPath $name) -Destination $path -Force }
+        elseif (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+    }
     if ($hadConfig) {
         Copy-Item -LiteralPath (Join-Path $backupPath 'config.yaml') -Destination $configPath -Force
     } elseif (Test-Path -LiteralPath $configPath) {
@@ -83,6 +119,10 @@ try {
     }
     if ($hadPack) {
         Copy-Item -LiteralPath (Join-Path $backupPath 'multimonitor') -Destination $packPath -Recurse
+    }
+    if (Test-Path -LiteralPath (Join-Path $backupPath 'wallpaper-state.json')) {
+        try { Restore-NativeWallpaper (Get-Content -LiteralPath (Join-Path $backupPath 'wallpaper-state.json') -Raw) }
+        catch { Write-Warning "Could not restore wallpaper; snapshot: $backupPath" }
     }
     throw
 }
@@ -102,7 +142,9 @@ $zebarExe = Join-Path $scoopRoot 'apps\zebar\current\zebar.exe'
 $glazeCli = Join-Path $scoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
 $glazeExe = Join-Path $scoopRoot 'apps\glazewm\current\GlazeWM.exe'
 try {
-    foreach ($exe in @($glazeCli, $glazeExe, $zebarExe)) {
+    $requiredExecutables = @($glazeCli, $glazeExe)
+    if (-not $WithoutZebar) { $requiredExecutables += $zebarExe }
+    foreach ($exe in $requiredExecutables) {
         if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw "Executable not found: $exe"
         }
@@ -128,19 +170,9 @@ try {
     Get-Process -Name zebar -ErrorAction SilentlyContinue |
         Where-Object { $_.SessionId -eq $sessionId } |
         Stop-Process -Force
-    Start-Process -FilePath $glazeExe
-    # Your existing GlazeWM startup command launches Zebar.
-    Start-Sleep -Seconds 3
-    $runningZebar = @(Get-Process -Name zebar -ErrorAction SilentlyContinue |
-        Where-Object { $_.SessionId -eq $sessionId })
-    if (-not $WithoutZebar -and $runningZebar.Count -eq 0) {
-        Start-Process -FilePath $zebarExe
-        Start-Sleep -Seconds 2
-    }
-    & $glazeCli command wm-redraw
-    if ($LASTEXITCODE -ne 0) {
-        throw 'GlazeWM is not ready to redraw yet.'
-    }
+    # The installed GlazeWM startup hook owns companion dispatch. Do not race it with a fallback Zebar launch.
+    & (Join-Path (Split-Path -Parent $configPath) 'Start-Desktop.ps1') -GlazeCli $glazeCli
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop startup reported a failure; inspect startup.log.' }
 } catch {
     Write-Warning "Settings are installed, but refreshing the apps failed: $_"
     Write-Warning 'Exit and relaunch GlazeWM from its tray menu/Start menu, then launch Zebar if needed.'

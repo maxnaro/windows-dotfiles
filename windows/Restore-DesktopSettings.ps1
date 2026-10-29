@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$BackupPath)
+param([Parameter(Mandatory)][string]$BackupPath, [switch]$NoRestart)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'DesktopSettings.ps1')
@@ -11,8 +11,23 @@ foreach ($entry in $entries) {
         throw "Missing backup: $($entry.Backup)"
     }
 }
+$wallpaperSnapshot = Join-Path $BackupPath 'wallpaper-state.json'
+$hasDesktopState = @( $entries | Where-Object { [IO.Path]::GetFileName($_.Path) -eq 'desktop-startup.json' } ).Count -gt 0
+if ($hasDesktopState -or (Test-Path -LiteralPath $wallpaperSnapshot)) {
+    . (Join-Path $PSScriptRoot 'Wallpaper.ps1')
+    if (-not $NoRestart) {
+        $installed = Join-Path $env:USERPROFILE '.glzr\glazewm'
+        Set-DesktopSession $installed '' $false
+        Stop-DesktopWallpaper -Wait
+        & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Stop -WaitForStop
+        Stop-DesktopApp 'zebar'
+    }
+    if (Test-Path -LiteralPath $wallpaperSnapshot) {
+        Initialize-DesktopRuntime -Directory (Join-Path $env:USERPROFILE '.glzr\glazewm') -Build
+    }
+}
 foreach ($name in @('PowerToys', 'PowerToys.FancyZones', 'PowerToys.PowerLauncher', 'Microsoft.CmdPal*', 'Flow.Launcher', 'Everything')) {
-    Stop-DesktopApp $name
+    if (-not $NoRestart) { Stop-DesktopApp $name }
 }
 foreach ($entry in $entries) {
     if ($entry.Existed) {
@@ -21,5 +36,16 @@ foreach ($entry in $entries) {
     } elseif (Test-Path -LiteralPath $entry.Path -PathType Leaf) {
         Remove-Item -LiteralPath $entry.Path
     }
+}
+$statePath = Join-Path $BackupPath 'previous-state.json'
+if (Test-Path -LiteralPath $statePath) {
+    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    $pack = Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor'
+    if (Test-Path -LiteralPath $pack) { Remove-Item -LiteralPath $pack -Recurse -Force }
+    if ($state.hadPack) { Copy-Item -LiteralPath (Join-Path $BackupPath 'multimonitor') -Destination $pack -Recurse }
+}
+if (Test-Path -LiteralPath $wallpaperSnapshot) {
+    # Restore paths first, then let Windows read their restored image contents.
+    Restore-NativeWallpaper (Get-Content -LiteralPath $wallpaperSnapshot -Raw)
 }
 Write-Host 'Settings and shortcuts restored. Relaunch PowerToys and any desired launchers manually.'

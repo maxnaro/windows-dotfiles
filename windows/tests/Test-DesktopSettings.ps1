@@ -56,7 +56,7 @@ public class DotfilesFakeCli {
         $env:DOTFILES_TEST_DELAY = $case[1]
         $env:DOTFILES_TEST_EXIT = $case[2]
         $output = Join-Path $testRoot $case[0]
-        & $measure -DurationSeconds 1 -IntervalSeconds 1 -OutputDirectory $output -Label test
+        & $measure -DurationSeconds 1 -IntervalSeconds 1 -OutputDirectory $output -Label test -ProbeTransport Cli -SkipPerformanceCounters
         $records = @(Get-Content -LiteralPath (Get-ChildItem -LiteralPath $output -Filter '*.jsonl')[0].FullName | ForEach-Object { $_ | ConvertFrom-Json })
         $sample = @($records | Where-Object { $_.Event -eq 'sample' })[0]
         Assert-True ($sample.QueryStatus -eq $case[0]) "Probe did not report $($case[0])."

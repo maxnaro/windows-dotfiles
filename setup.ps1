@@ -6,6 +6,7 @@ param(
     [switch]$WithLauncher,
     [switch]$StartupDiagnostics,
     [switch]$WithoutZebar,
+    [ValidateSet('Auto', 'Native', 'Overlay', 'None')][string]$WallpaperMode,
     [switch]$WithWsl,
     [string]$Distribution = 'UbuntuNC',
     [string]$LinuxDotfilesRepository = ''
@@ -39,7 +40,9 @@ foreach ($app in @('glazewm', 'zebar')) {
 }
 
 & (Join-Path $PSScriptRoot 'windows\Configure-Desktop.ps1')
-& (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart -WithoutZebar:$WithoutZebar
+$wallpaperArguments = @{}
+if ($PSBoundParameters.ContainsKey('WallpaperMode')) { $wallpaperArguments.WallpaperMode = $WallpaperMode }
+& (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart -WithoutZebar:$WithoutZebar @wallpaperArguments
 & (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1') -Diagnostics:$StartupDiagnostics
 
 if ($WithLauncher) {

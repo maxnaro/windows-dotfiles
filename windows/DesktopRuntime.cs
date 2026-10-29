@@ -1,0 +1,248 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.IO;
+using System.Net.WebSockets;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Web.Script.Serialization;
+using System.Windows.Forms;
+using Microsoft.Win32;
+
+namespace Dotfiles.Desktop {
+    public sealed class MemorySnapshot {
+        public ulong AvailableMBytes, CommittedBytes, CommitLimit;
+    }
+    public static class Performance {
+        [StructLayout(LayoutKind.Sequential)] struct PerformanceInfo {
+            public uint Size;
+            public UIntPtr CommitTotal, CommitLimit, CommitPeak, PhysicalTotal, PhysicalAvailable,
+                SystemCache, KernelTotal, KernelPaged, KernelNonpaged, PageSize;
+            public uint HandleCount, ProcessCount, ThreadCount;
+        }
+        [DllImport("psapi.dll", SetLastError = true)]
+        static extern bool GetPerformanceInfo(out PerformanceInfo info, uint size);
+        public static MemorySnapshot Memory() {
+            PerformanceInfo info;
+            if (!GetPerformanceInfo(out info, (uint)Marshal.SizeOf(typeof(PerformanceInfo))))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            ulong page = info.PageSize.ToUInt64();
+            return new MemorySnapshot {
+                AvailableMBytes = info.PhysicalAvailable.ToUInt64() * page / 1048576,
+                CommittedBytes = info.CommitTotal.ToUInt64() * page,
+                CommitLimit = info.CommitLimit.ToUInt64() * page
+            };
+        }
+    }
+    public sealed class ProbeResult {
+        public string QueryStatus, QueryError;
+        public double ConnectionMilliseconds, QueryMilliseconds;
+        public int QueryExitCode;
+    }
+    public sealed class MonitorProbe : IDisposable {
+        readonly Uri address;
+        ClientWebSocket socket;
+        public MonitorProbe() : this("ws://127.0.0.1:6123") { }
+        public MonitorProbe(string endpoint) { address = new Uri(endpoint); }
+        public ProbeResult Query(int timeoutMilliseconds) {
+            var result = new ProbeResult { QueryStatus = "error", QueryExitCode = 1 };
+            var timer = Stopwatch.StartNew();
+            bool connected = false;
+            using (var timeout = new CancellationTokenSource(Math.Max(1, timeoutMilliseconds))) {
+                try {
+                    if (socket == null) {
+                        socket = new ClientWebSocket();
+                        socket.Options.Proxy = null;
+                        socket.ConnectAsync(address, timeout.Token).GetAwaiter().GetResult();
+                    }
+                    result.ConnectionMilliseconds = timer.Elapsed.TotalMilliseconds;
+                    connected = true;
+                    timer.Restart();
+                    byte[] command = Encoding.UTF8.GetBytes("query monitors");
+                    socket.SendAsync(new ArraySegment<byte>(command), WebSocketMessageType.Text, true, timeout.Token).GetAwaiter().GetResult();
+                    using (var output = new MemoryStream()) {
+                        var buffer = new byte[8192];
+                        WebSocketReceiveResult message;
+                        do {
+                            message = socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token).GetAwaiter().GetResult();
+                            if (message.MessageType == WebSocketMessageType.Close) throw new IOException("GlazeWM disconnected.");
+                            output.Write(buffer, 0, message.Count);
+                            if (output.Length > 8 * 1024 * 1024) throw new IOException("Response exceeded 8 MiB.");
+                        } while (!message.EndOfMessage);
+                        var data = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 }.DeserializeObject(Encoding.UTF8.GetString(output.ToArray())) as Dictionary<string, object>;
+                        object success;
+                        bool ok = data != null && data.TryGetValue("success", out success) && success is bool && (bool)success;
+                        result.QueryStatus = ok ? "ok" : "failed";
+                        result.QueryExitCode = ok ? 0 : 1;
+                    }
+                } catch (Exception ex) {
+                    result.QueryStatus = timeout.IsCancellationRequested ? "timeout" : "error";
+                    result.QueryError = ex.Message;
+                    Dispose();
+                } finally {
+                    if (connected) result.QueryMilliseconds = timer.Elapsed.TotalMilliseconds;
+                    else result.ConnectionMilliseconds = timer.Elapsed.TotalMilliseconds;
+                }
+            }
+            return result;
+        }
+        public void Dispose() { if (socket != null) { socket.Abort(); socket.Dispose(); socket = null; } }
+    }
+
+    public static class StartupWindows {
+        delegate bool EnumProc(IntPtr window, IntPtr data);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr data);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
+        [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+        public static bool EverythingResponds(int process) {
+            bool ready = false;
+            EnumWindows((window, unused) => {
+                uint owner; GetWindowThreadProcessId(window, out owner);
+                if (owner != process) return true;
+                var name = new StringBuilder(256); GetClassName(window, name, name.Capacity);
+                if (name.ToString() != "EVERYTHING_TASKBAR_NOTIFICATION") return true;
+                IntPtr result;
+                ready = SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 3, 200, out result) != IntPtr.Zero;
+                return !ready;
+            }, IntPtr.Zero);
+            return ready;
+        }
+    }
+
+    // COM vtable order follows shobjidl_core.h, including the unused slideshow methods.
+    [ComImport, Guid("B92B56A9-8B55-4E14-9A89-0199BBB6F93B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IDesktopWallpaper {
+        void SetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor, [MarshalAs(UnmanagedType.LPWStr)] string wallpaper);
+        [return: MarshalAs(UnmanagedType.LPWStr)] string GetWallpaper([MarshalAs(UnmanagedType.LPWStr)] string monitor);
+        [return: MarshalAs(UnmanagedType.LPWStr)] string GetMonitorDevicePathAt(uint index);
+        uint GetMonitorDevicePathCount();
+        void GetMonitorRECT([MarshalAs(UnmanagedType.LPWStr)] string monitor, out NativeRect rect);
+        void SetBackgroundColor(uint color);
+        uint GetBackgroundColor();
+        void SetPosition(int position);
+        int GetPosition();
+        void SetSlideshow(IntPtr items);
+        IntPtr GetSlideshow();
+        void SetSlideshowOptions(uint options, uint tick);
+        void GetSlideshowOptions(out uint options, out uint tick);
+        void AdvanceSlideshow([MarshalAs(UnmanagedType.LPWStr)] string monitor, int direction);
+        uint GetStatus();
+        void Enable([MarshalAs(UnmanagedType.Bool)] bool enable);
+    }
+    [StructLayout(LayoutKind.Sequential)] struct NativeRect { public int Left, Top, Right, Bottom; }
+    public sealed class WallpaperMonitor { public string Monitor, Path; }
+    public sealed class WallpaperState {
+        public int Position;
+        public uint BackgroundColor;
+        public bool SlideshowActive;
+        public List<WallpaperMonitor> Monitors = new List<WallpaperMonitor>();
+    }
+    public static class Wallpaper {
+        static IDesktopWallpaper Open() { return (IDesktopWallpaper)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("C2CF3110-460E-4FC1-B9D0-8A1C0C9CC4BD"))); }
+        public static WallpaperState Capture() {
+            var api = Open();
+            try {
+                var result = new WallpaperState { Position = api.GetPosition(), BackgroundColor = api.GetBackgroundColor(), SlideshowActive = (api.GetStatus() & 2) != 0 };
+                for (uint i = 0; i < api.GetMonitorDevicePathCount(); i++) {
+                    string monitor = api.GetMonitorDevicePathAt(i);
+                    result.Monitors.Add(new WallpaperMonitor { Monitor = monitor, Path = api.GetWallpaper(monitor) });
+                }
+                return result;
+            } finally { Marshal.FinalReleaseComObject(api); }
+        }
+        public static bool Matches(string path) {
+            var state = Capture();
+            return !state.SlideshowActive && state.Position == 4 && state.Monitors.Count > 0 && state.Monitors.TrueForAll(m => String.Equals(m.Path, path, StringComparison.OrdinalIgnoreCase));
+        }
+        public static void Apply(string path) {
+            if (!File.Exists(path)) throw new FileNotFoundException("Wallpaper image not found.", path);
+            // Do not replace a slideshow whose shell item array cannot be faithfully backed up.
+            if (Capture().SlideshowActive) throw new InvalidOperationException("An active slideshow is preserved; use the image overlay.");
+            var api = Open();
+            try { api.SetWallpaper(null, Path.GetFullPath(path)); api.SetPosition(4); }
+            finally { Marshal.FinalReleaseComObject(api); }
+            if (!Matches(Path.GetFullPath(path))) throw new IOException("Windows did not retain the requested wallpaper.");
+        }
+        public static void Restore(string json) {
+            var state = new JavaScriptSerializer().Deserialize<WallpaperState>(json);
+            if (state.SlideshowActive) return; // Apply never changes active slideshows.
+            var api = Open();
+            try {
+                api.SetBackgroundColor(state.BackgroundColor); api.SetPosition(state.Position);
+                foreach (var monitor in state.Monitors) api.SetWallpaper(monitor.Monitor, monitor.Path);
+            } finally { Marshal.FinalReleaseComObject(api); }
+        }
+    }
+
+    public sealed class WallpaperWindow : Form {
+        readonly Image image;
+        public WallpaperWindow(Image picture, Rectangle bounds) {
+            image = picture; Text = "Dotfiles wallpaper"; Name = "DotfilesWallpaper";
+            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual; AutoScaleMode = AutoScaleMode.None; Bounds = bounds;
+            DoubleBuffered = true; BackColor = Color.FromArgb(34, 26, 15);
+        }
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams {
+            get { var p = base.CreateParams; p.ExStyle |= 0x08000000 | 0x80 | 0x80000 | 0x20; return p; }
+        }
+        protected override void OnShown(EventArgs e) {
+            base.OnShown(e); SetLayeredWindowAttributes(Handle, 0, 255, 2);
+            SetWindowPos(Handle, new IntPtr(1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+        }
+        public static RectangleF Cover(Size image, Size target) {
+            float scale = Math.Max((float)target.Width / image.Width, (float)target.Height / image.Height);
+            return new RectangleF((target.Width - image.Width * scale) / 2, (target.Height - image.Height * scale) / 2, image.Width * scale, image.Height * scale);
+        }
+        protected override void OnPaint(PaintEventArgs e) { e.Graphics.DrawImage(image, Cover(image.Size, ClientSize)); }
+        protected override void WndProc(ref Message m) {
+            if (m.Msg == 0x84) { m.Result = new IntPtr(-1); return; }
+            if (m.Msg == 0x21) { m.Result = new IntPtr(3); return; }
+            base.WndProc(ref m);
+        }
+        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+        [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr window, uint key, byte alpha, uint flags);
+    }
+    public sealed class WallpaperOverlay : ApplicationContext {
+        readonly List<WallpaperWindow> windows = new List<WallpaperWindow>();
+        readonly Image image;
+        readonly Control dispatcher = new Control();
+        readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 500 };
+        WallpaperOverlay(string path, EventWaitHandle stop, EventWaitHandle ready) {
+            using (var original = Image.FromFile(path)) image = new Bitmap(original);
+            IntPtr unused = dispatcher.Handle;
+            Rebuild();
+            SystemEvents.DisplaySettingsChanged += DisplayChanged;
+            SystemEvents.PowerModeChanged += PowerChanged;
+            timer.Tick += delegate { if (stop.WaitOne(0)) ExitThread(); };
+            timer.Start(); ready.Set();
+        }
+        void Rebuild() {
+            foreach (var window in windows) { window.Close(); window.Dispose(); }
+            windows.Clear();
+            foreach (var screen in Screen.AllScreens) {
+                var window = new WallpaperWindow(image, screen.Bounds); windows.Add(window); window.Show();
+            }
+        }
+        void QueueRebuild() { if (!dispatcher.IsDisposed) dispatcher.BeginInvoke((Action)Rebuild); }
+        void DisplayChanged(object sender, EventArgs args) { QueueRebuild(); }
+        void PowerChanged(object sender, PowerModeChangedEventArgs args) { if (args.Mode == PowerModes.Resume) QueueRebuild(); }
+        protected override void Dispose(bool disposing) {
+            if (disposing) {
+                SystemEvents.DisplaySettingsChanged -= DisplayChanged; SystemEvents.PowerModeChanged -= PowerChanged;
+                timer.Dispose(); dispatcher.Dispose();
+                foreach (var window in windows) window.Dispose();
+                image.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+        public static void Run(string path, EventWaitHandle stop, EventWaitHandle ready) {
+            SetThreadDpiAwarenessContext(new IntPtr(-4));
+            using (var overlay = new WallpaperOverlay(path, stop, ready)) Application.Run(overlay);
+        }
+        [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+    }
+}

@@ -88,9 +88,10 @@ Set-JsonProperty $settings 'QueryBoxFontSize' 18
 Set-JsonProperty $settings 'ResultItemFontSize' 14
 Set-JsonProperty $settings 'ResultSubItemFontSize' 12
 Set-JsonProperty $settings 'Hotkey' 'Alt + Space'
+Set-JsonProperty $settings 'SearchWindowScreen' 'Focus'
 Set-JsonProperty $settings 'HideOnStartup' $true
 Set-JsonProperty $settings 'FirstLaunch' $false
-# Startup is owned by our per-user shortcut, not Flow's own registration.
+# Startup is owned by our per-user scheduled task, not Flow's own registration.
 Set-JsonProperty $settings 'StartFlowLauncherOnSystemStartup' $false
 if ($settings.PSObject.Properties['PluginSettings'] -and $settings.PluginSettings.PSObject.Properties['Plugins']) {
     foreach ($plugin in $settings.PluginSettings.Plugins.PSObject.Properties) {
@@ -106,8 +107,13 @@ Set-JsonProperty $explorer 'EverythingInstalledPath' $everythingExe
 Set-JsonProperty $explorer 'EnableEverythingContentSearch' $false
 Write-SettingText $explorerPath ($explorer | ConvertTo-Json -Depth 50)
 Update-PowerToys -WithLauncher
-Set-StartupShortcut 'Everything (dotfiles)' $everythingExe '-startup'
-Set-StartupShortcut 'Flow Launcher (dotfiles)' $flowExe
+# Include startup ownership in this backup so restoring launcher settings also
+# restores their previous opt-in and any legacy Startup-folder shortcuts.
+Save-SettingFile (Join-Path $env:USERPROFILE '.glzr\glazewm\launcher-startup.json')
+foreach ($name in @('Everything (dotfiles).lnk', 'Flow Launcher (dotfiles).lnk')) {
+    Save-SettingFile (Join-Path ([Environment]::GetFolderPath('Startup')) $name)
+}
+& (Join-Path $PSScriptRoot 'Enable-Startup.ps1') -WithLauncher
 if (-not $NoStart) {
     Start-Process -FilePath $everythingExe -ArgumentList '-startup'
     Start-Process -FilePath $flowExe

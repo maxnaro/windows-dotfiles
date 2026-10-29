@@ -104,3 +104,87 @@ function Set-StartupShortcut {
     $shortcut.WorkingDirectory = Split-Path -Parent $Target
     $shortcut.Save()
 }
+
+function Register-DesktopStartup {
+    [CmdletBinding()]
+    param(
+        [string]$ScoopRoot = $(if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE 'scoop' }),
+        [string]$LauncherDirectory = (Join-Path $env:USERPROFILE '.glzr\glazewm'),
+        [string]$StartupDirectory = ([Environment]::GetFolderPath('Startup')),
+        [switch]$WithLauncher, [switch]$Diagnostics, [switch]$DisableDiagnostics
+    )
+    if ($Diagnostics -and $DisableDiagnostics) { throw 'Choose either Diagnostics or DisableDiagnostics.' }
+    $glazeCli = Join-Path $ScoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
+    if (-not (Test-Path -LiteralPath $glazeCli -PathType Leaf)) { throw "GlazeWM CLI not found: $glazeCli" }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $userSid = $identity.User.Value
+    $taskName = 'GlazeWM'
+    $existingTask = Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue
+    $accountNames = @($userSid, $identity.Name, ($identity.Name -split '\\')[-1])
+    if ($existingTask -and $existingTask.Principal.UserId -notin $accountNames) {
+        throw 'An existing GlazeWM scheduled task belongs to another account.'
+    }
+
+    $launcherConfig = Join-Path $LauncherDirectory 'launcher-startup.json'
+    $launcherShortcuts = @('Everything (dotfiles).lnk', 'Flow Launcher (dotfiles).lnk')
+    $legacyLaunchers = @($launcherShortcuts | Where-Object { Test-Path -LiteralPath (Join-Path $StartupDirectory $_) })
+    $enableLaunchers = $WithLauncher -or (Test-Path -LiteralPath $launcherConfig) -or $legacyLaunchers.Count -gt 0
+    $launcherScoopRoot = $ScoopRoot
+    if (-not $WithLauncher -and (Test-Path -LiteralPath $launcherConfig)) {
+        $previous = Read-SettingJson $launcherConfig
+        if (-not $previous -or -not $previous.PSObject.Properties['ScoopRoot'] -or
+            $previous.ScoopRoot -isnot [string] -or [string]::IsNullOrWhiteSpace($previous.ScoopRoot) -or
+            -not [IO.Path]::IsPathRooted($previous.ScoopRoot)) {
+            throw 'Invalid launcher-startup.json. Rerun Enable-Startup.ps1 -WithLauncher to repair it.'
+        }
+        $launcherScoopRoot = $previous.ScoopRoot
+    }
+    if ($enableLaunchers) {
+        foreach ($relative in @('apps\flow-launcher\current\Flow.Launcher.exe', 'apps\everything\current\Everything.exe')) {
+            $exe = Join-Path $launcherScoopRoot $relative
+            if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Launcher executable not found: $exe" }
+        }
+    }
+    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Startup source missing: $file" }
+    }
+    $backup = New-SettingsBackup 'startup-task'
+    Save-SettingFile $launcherConfig
+    foreach ($name in @('GlazeWM.lnk') + $launcherShortcuts) { Save-SettingFile (Join-Path $StartupDirectory $name) }
+
+    New-Item -ItemType Directory -Path $LauncherDirectory -Force | Out-Null
+    # Install the implementation before switching the compatible CMD entry point.
+    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $LauncherDirectory -Force
+    }
+    . (Join-Path $PSScriptRoot 'HelperCache.ps1')
+    Initialize-DesktopRuntime -Directory $LauncherDirectory -Build
+    $launcherPath = Join-Path $LauncherDirectory 'Start-GlazeWM.cmd'
+    $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\cmd.exe') `
+        -Argument ('/d /s /c ""{0}" "{1}""' -f $launcherPath, $glazeCli) -WorkingDirectory $LauncherDirectory
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userSid
+    $trigger.Delay = 'PT10S'
+    $principal = New-ScheduledTaskPrincipal -UserId $userSid -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -Priority 6 -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)
+    Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Trigger $trigger `
+        -Principal $principal -Settings $settings -Description 'Start GlazeWM and configured app launchers at sign-in (Windows dotfiles).' -Force | Out-Null
+
+    # Retain the previous opt-in and shortcuts if registration fails.
+    if ($enableLaunchers) {
+        Write-SettingText $launcherConfig ([pscustomobject]@{ ScoopRoot = $launcherScoopRoot } | ConvertTo-Json)
+    }
+    $diagnosticFlag = Join-Path $LauncherDirectory 'diagnostics.enabled'
+    if ($Diagnostics) { Set-Content -LiteralPath $diagnosticFlag -Value 'startup' -Encoding ASCII }
+    if ($DisableDiagnostics -and (Test-Path -LiteralPath $diagnosticFlag)) { Remove-Item -LiteralPath $diagnosticFlag }
+    $retiredShortcuts = @('GlazeWM.lnk')
+    if ($enableLaunchers) { $retiredShortcuts += $launcherShortcuts }
+    foreach ($name in $retiredShortcuts) {
+        $path = Join-Path $StartupDirectory $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+    }
+    Write-Host "Registered $taskName logon task for $($identity.Name) with a 10-second delay."
+    Write-Host "Startup settings and shortcut backup: $backup"
+    Write-Host "Startup log: $(Join-Path $LauncherDirectory 'startup.log')"
+    if ($enableLaunchers) { Write-Host 'Flow and Everything will start with GlazeWM; Startup-folder delays are bypassed.' }
+}

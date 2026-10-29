@@ -101,7 +101,8 @@
         "*.html",
         "*.css",
         "*.js",
-        "resources/icons.svg"
+        "resources/icons.svg",
+        "vendor/zebar.js"
       ],
       "caching": {
         "defaultDuration": 604800,
