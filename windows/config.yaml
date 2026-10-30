@@ -3,16 +3,16 @@ general:
   # script or launching another application.
   # Example: The below command launches Zebar.
   startup_commands:
-    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -CompanionsOnly'
+    - 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" companions'
 
   # Commands to run just before the WM is shutdown.
   # Example: The below command kills Zebar.
   shutdown_commands:
-    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -StopCompanions'
+    - 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" shutdown'
 
   # Commands to run after the WM config is reloaded.
   config_reload_commands:
-    - 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1" -Restart'
+    - 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" reload'
 
   # Whether to automatically focus windows underneath the cursor.
   focus_follows_cursor: false

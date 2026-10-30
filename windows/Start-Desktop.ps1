@@ -57,7 +57,7 @@ function New-StartupApplication {
     return [pscustomobject]@{
         Name = $Name; Kind = $Kind; Exe = $Exe; Root = $Root; Arguments = $Arguments
         ProcessName = [IO.Path]::GetFileNameWithoutExtension($Exe)
-        Ready = $false; Failed = $false; Dispatched = $false; StartAt = 0.0; Optional = $false; Detail = 'waiting for scheduled dispatch'
+        VisibleSince = $null; VisibleProcess = 0; Ready = $false; Failed = $false; Dispatched = $false; StartAt = 0.0; Optional = $false; Detail = 'waiting for scheduled dispatch'
     }
 }
 
@@ -73,7 +73,8 @@ function Start-StartupApplication {
         Write-StartupStatus "$($App.Name): launching $($App.Exe)"
         $options = @{ FilePath = $App.Exe; WorkingDirectory = (Split-Path -Parent $App.Exe); ErrorAction = 'Stop' }
         if ($App.Arguments) { $options.ArgumentList = $App.Arguments }
-        Start-Process @options
+        $child = Start-ConsoleFreeProcess $App.Exe $App.Arguments
+        $child.Dispose()
     } catch {
         $App.Failed = $true
         $App.Detail = $_.Exception.Message
@@ -128,12 +129,19 @@ function Get-StartupApplicationStatus {
         # Squirrel hands off to app-<version>\Flow.Launcher.exe and exits successfully.
         $processes = @($processes | Where-Object { $_.Path -match '\\app-[^\\]+\\Flow\.Launcher\.exe$' })
     }
-    if (-not $processes.Count) { return 'waiting for application process' }
+    if (-not $processes.Count) { $App.VisibleSince = $null; return 'waiting for application process' }
     if ($App.Kind -eq 'Everything') {
         if ([Dotfiles.Desktop.StartupWindows]::EverythingResponds($processes[0].Id)) { return 'ready' }
         return 'waiting for Everything IPC'
     }
-    if ($App.Kind -eq 'Zebar') { return 'ready' }
+    if ($App.Kind -eq 'Zebar') {
+        if ($App.VisibleProcess -ne $processes[0].Id) { $App.VisibleSince = $null; $App.VisibleProcess = $processes[0].Id }
+        if ([Dotfiles.Desktop.StartupWindows]::BarsVisible($processes[0].Id)) {
+            if (-not $App.VisibleSince) { $App.VisibleSince = [Diagnostics.Stopwatch]::StartNew() }
+            if ($App.VisibleSince.Elapsed.TotalSeconds -ge 3) { return 'ready' }
+        } else { $App.VisibleSince = $null }
+        return 'waiting for visible bars on every monitor'
+    }
     # Derive logs from the actual app process, which can still be an older version after a Scoop update.
     $applicationDirectory = Split-Path -Parent $processes[0].Path
     $version = (Split-Path -Leaf $applicationDirectory).Substring(4)
@@ -149,8 +157,8 @@ function Start-StartupScript {
     $log = Join-Path $Directory ($Script.Replace('.ps1', '-startup.log'))
     $command = "& '" + $entry.Replace("'", "''") + "'" + $Arguments + " *> '" + $log.Replace("'", "''") + "'"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') `
-        -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded) -WindowStyle Hidden
+    $child = Start-ConsoleFreeProcess (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded)
+    $child.Dispose()
 }
 
 function Start-StartupDiagnostics {
@@ -162,12 +170,11 @@ function Start-StartupDiagnostics {
     New-Item -ItemType Directory -Path $output -Force | Out-Null
     $prefix = Join-Path $output ((Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-collector')
     # Redirect inside the child, so its log handles remain valid after this host exits.
-    # ShellExecute (no parent-side redirection or -NoNewWindow) gives it a separate hidden console.
+    # CreateNoWindow prevents a console while child-owned logs survive this host.
     $command = '& {{ $ErrorActionPreference = ''Stop''; try {{ & ''{0}'' -OutputDirectory ''{1}'' }} catch {{ Write-Error $_ -ErrorAction Continue; exit 1 }} }} *> ''{2}''' -f `
         $collector.Replace("'", "''"), $output.Replace("'", "''"), ($prefix + '.log').Replace("'", "''")
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    $collectorProcess = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') `
-        -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded) -WindowStyle Hidden -PassThru
+    $collectorProcess = Start-ConsoleFreeProcess (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded)
     Write-StartupStatus "Diagnostics: started independently (PID $($collectorProcess.Id)); captures: $output; collector log: $prefix.log"
     $collectorProcess.Dispose()
 }
@@ -232,7 +239,7 @@ function Invoke-DesktopStartup {
                 $scoop = Split-Path -Parent (Split-Path -Parent $glaze.Root)
                 $root = Join-Path $scoop 'apps\zebar'
                 $bar = New-StartupApplication 'Zebar' 'Zebar' (Join-Path $root 'current\zebar.exe') $root
-                $bar.Optional = $true; $bar.StartAt = 12 * $StageScale; $apps.Add($bar)
+                $bar.Optional = $false; $bar.StartAt = 12 * $StageScale; $apps.Add($bar)
             }
             if ($desktop.WallpaperMode -ne 'None') {
                 $stages.Add([pscustomobject]@{ Name = 'Wallpaper'; At = 15 * $StageScale; Done = $false; Script = 'Wallpaper.ps1'; Arguments = ' -Run' })
@@ -263,11 +270,11 @@ function Invoke-DesktopStartup {
                 $remaining = $TimeoutSeconds - $script:startupWatch.Elapsed.TotalSeconds
                 if ($remaining -le 0) { break }
                 try {
-                    if ($app.Kind -eq 'Everything' -and -not $windowsReady) { Initialize-StartupWindows; $windowsReady = $true }
+                    if ($app.Kind -in @('Everything', 'Zebar') -and -not $windowsReady) { Initialize-StartupWindows; $windowsReady = $true }
                     $app.Detail = Get-StartupApplicationStatus $app $Cli ([int][Math]::Max(1, [Math]::Min(2000, $remaining * 1000)))
                     if ($app.Detail -eq 'ready') {
                         $app.Ready = $true
-                        $suffix = if ($app.Kind -eq 'Zebar') { ' Process running; widget rendering is not confirmed.' } elseif ($app.Kind -eq 'Flow') { ' Initialized; use Alt+Space.' } elseif ($app.Kind -eq 'Everything') { ' IPC responds; indexing can continue in the background.' } else { ' Monitor query responds.' }
+                        $suffix = if ($app.Kind -eq 'Zebar') { ' Visible bars on every monitor for three seconds.' } elseif ($app.Kind -eq 'Flow') { ' Initialized; use Alt+Space.' } elseif ($app.Kind -eq 'Everything') { ' IPC responds; indexing can continue in the background.' } else { ' Monitor query responds.' }
                         Write-StartupStatus "$($app.Name): ready.$suffix"
                     } elseif ($app.Detail -like 'hotkey registration failed*') {
                         $app.Failed = $true

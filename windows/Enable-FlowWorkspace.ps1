@@ -11,7 +11,7 @@ function Add-FlowWorkspaceCommand {
     if (-not $match.Success) { throw "Missing general.$Field in GlazeWM config." }
     $remaining = $Config.Substring($match.Index)
     $block = [regex]::Match($remaining, '(?ms)^.*?(?=\r?\n  [a-z_]+:|\r?\n[a-z_]+:|\z)').Value
-    if ($block.Contains('Watch-FlowWorkspace.ps1') -or ($Field -in @('startup_commands', 'shutdown_commands') -and $block.Contains('Start-Desktop.ps1'))) { return $Config }
+    if ($block.Contains('DesktopLauncher.exe') -or $block.Contains('Watch-FlowWorkspace.ps1') -or ($Field -in @('startup_commands', 'shutdown_commands') -and $block.Contains('Start-Desktop.ps1'))) { return $Config }
     $value = $match.Groups['value'].Value.Trim()
     $quoted = "'" + $Command.Replace("'", "''") + "'"
     if ($value.StartsWith('[') -and $value.EndsWith(']')) {
@@ -39,11 +39,20 @@ $cli = Join-Path $scoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
 if (-not $NoRestart -and -not (Test-Path -LiteralPath $cli)) { throw "GlazeWM CLI not found: $cli" }
 & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Check
 $config = [IO.File]::ReadAllText($configPath)
-$launch = 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1"'
-$config = Add-FlowWorkspaceCommand $config 'startup_commands' $launch
-$config = Add-FlowWorkspaceCommand $config 'shutdown_commands' ($launch + ' -Stop')
-$config = Add-FlowWorkspaceCommand $config 'config_reload_commands' ($launch + ' -Restart')
+$config = Convert-DesktopLifecycle $config
+$launch = 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe"'
+$config = Add-FlowWorkspaceCommand $config 'startup_commands' ($launch + ' companions')
+$config = Add-FlowWorkspaceCommand $config 'shutdown_commands' ($launch + ' shutdown')
+$config = Add-FlowWorkspaceCommand $config 'config_reload_commands' ('shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" reload')
+. (Join-Path $PSScriptRoot 'HelperCache.ps1')
 $backup = New-SettingsBackup 'flow-workspace'
+Save-SettingFile (Join-Path $installed 'DesktopLauncher.exe')
+try {
+Install-DesktopLauncher -Directory $installed
+foreach ($file in @('Invoke-DesktopLauncher.ps1', 'DesktopLauncher.cs', 'Start-Desktop.ps1', 'DesktopRuntime.cs', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1')) {
+    Write-SettingText (Join-Path $installed $file) ([IO.File]::ReadAllText((Join-Path $PSScriptRoot $file)))
+}
+Initialize-DesktopRuntime -Directory $installed -Build
 Write-Host "Flow workspace backup: $backup"
 # Stop the running version before replacing either source file. A config reload
 # alone used to race with an old helper that was still holding its session mutex.
@@ -78,3 +87,9 @@ if (-not $NoRestart) {
         if ($running.Count) { Start-Process -FilePath (Join-Path $flowRoot 'Flow.Launcher.exe') }
     }
 } else { Write-Host 'Settings installed. Restart Flow and reload GlazeWM with Alt+Shift+R to activate them.' }
+
+} catch {
+    $failure = $_
+    try { Restore-StartupBackup $backup } catch { Write-Warning ('Rollback failed: ' + $_.Exception.Message + '; backup: ' + $backup) }
+    throw $failure
+}

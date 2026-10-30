@@ -145,23 +145,32 @@ function Register-DesktopStartup {
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Launcher executable not found: $exe" }
         }
     }
-    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
+    foreach ($file in @('Start-Desktop.ps1', 'DesktopLauncher.cs', 'Invoke-DesktopLauncher.ps1', 'Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Wallpaper.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Startup source missing: $file" }
     }
     $backup = New-SettingsBackup 'startup-task'
     Save-SettingFile $launcherConfig
     foreach ($name in @('GlazeWM.lnk') + $launcherShortcuts) { Save-SettingFile (Join-Path $StartupDirectory $name) }
 
+    $installedFiles = @('Start-Desktop.ps1', 'DesktopLauncher.cs', 'Invoke-DesktopLauncher.ps1', 'DesktopLauncher.exe', 'Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'config.yaml', 'diagnostics.enabled')
+    foreach ($file in $installedFiles) { Save-SettingFile (Join-Path $LauncherDirectory $file) }
+    if ($existingTask) { Export-ScheduledTask -TaskName $taskName -TaskPath '\' | Set-Content -LiteralPath (Join-Path $backup 'task.xml') -Encoding Unicode }
+    [IO.File]::WriteAllText((Join-Path $backup 'task.json'), (@{ Existed = [bool]$existingTask; Name = $taskName } | ConvertTo-Json))
+    try {
     New-Item -ItemType Directory -Path $LauncherDirectory -Force | Out-Null
-    # Install the implementation before switching the compatible CMD entry point.
-    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs')) {
-        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $LauncherDirectory -Force
-    }
     . (Join-Path $PSScriptRoot 'HelperCache.ps1')
     Initialize-DesktopRuntime -Directory $LauncherDirectory -Build
-    $launcherPath = Join-Path $LauncherDirectory 'Start-GlazeWM.vbs'
-    $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\wscript.exe') `
-        -Argument ('//B //Nologo "{0}" "{1}"' -f $launcherPath, $glazeCli) -WorkingDirectory $LauncherDirectory
+    Install-DesktopLauncher -Directory $LauncherDirectory
+    foreach ($file in $installedFiles | Where-Object { $_ -notin @('DesktopLauncher.exe', 'config.yaml', 'diagnostics.enabled') }) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $LauncherDirectory -Force
+    }
+    & (Join-Path $LauncherDirectory 'Watch-FlowWorkspace.ps1') -Build
+    $configPath = Join-Path $LauncherDirectory 'config.yaml'
+    if (Test-Path -LiteralPath $configPath) {
+        Write-SettingText $configPath (Convert-DesktopLifecycle ([IO.File]::ReadAllText($configPath)))
+    }
+    $action = New-ScheduledTaskAction -Execute (Join-Path $LauncherDirectory 'DesktopLauncher.exe') `
+        -Argument ('startup "{0}"' -f $glazeCli) -WorkingDirectory $LauncherDirectory
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userSid
     $trigger.Delay = 'PT10S'
     $principal = New-ScheduledTaskPrincipal -UserId $userSid -LogonType Interactive -RunLevel Limited
@@ -183,8 +192,83 @@ function Register-DesktopStartup {
         $path = Join-Path $StartupDirectory $name
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
     }
+    } catch {
+        $failure = $_
+        Restore-StartupBackup $backup
+        throw $failure
+    }
     Write-Host "Registered $taskName logon task for $($identity.Name) with a 10-second delay."
     Write-Host "Startup settings and shortcut backup: $backup"
     Write-Host "Startup log: $(Join-Path $LauncherDirectory 'startup.log')"
     if ($enableLaunchers) { Write-Host 'Flow and Everything will start with GlazeWM; Startup-folder delays are bypassed.' }
+}
+
+function Convert-DesktopLifecycle {
+    param([string]$Config)
+    $Config = [regex]::Replace($Config, 'shell-exec powershell.exe[^\r\n'']*Start-Desktop.ps1" -CompanionsOnly', 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" companions')
+    $Config = [regex]::Replace($Config, 'shell-exec powershell.exe[^\r\n'']*Start-Desktop.ps1" -StopCompanions', 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" shutdown')
+    $Config = [regex]::Replace($Config, 'shell-exec powershell.exe[^\r\n'']*Watch-FlowWorkspace.ps1" -Restart', 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" reload')
+    $Config = [regex]::Replace($Config, 'shell-exec powershell.exe[^\r\n'']*Watch-FlowWorkspace.ps1" -Stop', 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" shutdown')
+    $Config = [regex]::Replace($Config, 'shell-exec powershell.exe[^\r\n'']*Watch-FlowWorkspace.ps1"(?='')', 'shell-exec "%USERPROFILE%/.glzr/glazewm/DesktopLauncher.exe" companions')
+    return $Config
+}
+
+function Restore-StartupBackup {
+    param([string]$BackupPath)
+    $taskManifest = Join-Path $BackupPath 'task.json'
+    if (Test-Path -LiteralPath $taskManifest) {
+        $state = Get-Content -LiteralPath $taskManifest -Raw | ConvertFrom-Json
+        if ($state.Existed) { $null = [xml][IO.File]::ReadAllText((Join-Path $BackupPath 'task.xml')) }
+    }
+    $parsed = Get-Content -LiteralPath (Join-Path $BackupPath 'files.json') -Raw | ConvertFrom-Json
+    foreach ($entry in @($parsed)) {
+        if ($entry.Existed -and -not (Test-Path -LiteralPath (Join-Path $BackupPath $entry.Backup))) { throw "Missing backup: $($entry.Backup)" }
+    }
+    foreach ($entry in @($parsed)) {
+        if ($entry.Existed) { New-Item -ItemType Directory -Path (Split-Path -Parent $entry.Path) -Force | Out-Null }
+        if ($entry.Existed) { Copy-Item -LiteralPath (Join-Path $BackupPath $entry.Backup) -Destination $entry.Path -Force }
+        elseif (Test-Path -LiteralPath $entry.Path) { Remove-Item -LiteralPath $entry.Path -Force }
+    }
+    $registry = Join-Path $BackupPath 'registry.json'
+    if (Test-Path -LiteralPath $registry) {
+        $parsed = Get-Content -LiteralPath $registry -Raw | ConvertFrom-Json
+        foreach ($entry in @($parsed)) {
+            New-ItemProperty -LiteralPath $entry.Path -Name $entry.Name -Value $entry.Value -PropertyType $entry.Kind -Force | Out-Null
+        }
+    }
+    $task = Join-Path $BackupPath 'task.json'
+    if (Test-Path -LiteralPath $task) {
+        $state = Get-Content -LiteralPath $task -Raw | ConvertFrom-Json
+        if ($state.Existed) { Register-ScheduledTask -TaskName $state.Name -TaskPath '\' -Xml ([IO.File]::ReadAllText((Join-Path $BackupPath 'task.xml'))) -Force | Out-Null }
+        else { Unregister-ScheduledTask -TaskName $state.Name -TaskPath '\' -Confirm:$false -ErrorAction SilentlyContinue }
+    }
+}
+
+function Disable-OptionalStartupApps {
+    $backup = New-SettingsBackup 'optional-startup'
+    $entries = @()
+    $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    if (Test-Path -LiteralPath $run) {
+        $key = Get-Item -LiteralPath $run
+        foreach ($name in $key.GetValueNames()) {
+            $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            if (($name -match '^Mozilla-Firefox-[A-Fa-f0-9]{16}$' -and $value -match '(?i)firefox\.exe"?\s+-os-autostart(?:\s|$)') -or
+                ($name -eq 'Adobe Acrobat Synchronizer' -and $value -match '(?i)AdobeCollabSync\.exe')) {
+                $entries += [pscustomobject]@{ Path = $run; Name = $name; Value = $value; Kind = $key.GetValueKind($name).ToString() }
+            }
+        }
+    }
+    ConvertTo-Json -InputObject @($entries) -Depth 8 | Set-Content -LiteralPath (Join-Path $backup 'registry.json') -Encoding UTF8
+    try {
+        foreach ($entry in $entries) { Remove-ItemProperty -LiteralPath $entry.Path -Name $entry.Name }
+        $startup = [Environment]::GetFolderPath('Startup')
+        foreach ($shortcut in @(Get-ChildItem -LiteralPath $startup -Filter '*.lnk' -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -match '^Send to OneNote(?: Tool)?$' })) {
+            $shell = New-Object -ComObject WScript.Shell
+            if ($shell.CreateShortcut($shortcut.FullName).TargetPath -match '(?i)\\ONENOTEM\.EXE$') {
+                Save-SettingFile $shortcut.FullName
+                Remove-Item -LiteralPath $shortcut.FullName
+            }
+        }
+    } catch { Restore-StartupBackup $backup; throw }
+    Write-Host "Optional startup backup: $backup"
 }

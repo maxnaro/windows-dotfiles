@@ -95,11 +95,12 @@ public class DotfilesStartupFakeCli {
         function Get-StartupApplicationProcess { param($App); if ($script:existingApps) { [pscustomobject]@{ Id = 1 } } }
         function Initialize-StartupWindows { }
         function Start-StartupDiagnostics { param($Directory); $script:startupEvents.Add('diagnostics') }
-        function Start-Process {
-            param($FilePath, $WorkingDirectory, $ArgumentList, $ErrorAction)
+        function Start-ConsoleFreeProcess {
+            param($FilePath, $Arguments)
             $name = [IO.Path]::GetFileNameWithoutExtension($FilePath)
             $script:startupEvents.Add('launch:' + $name)
             if ($name -eq $script:failLaunch) { throw 'fixture launch failed' }
+            return (New-Object IO.MemoryStream)
         }
         function Get-StartupApplicationStatus {
             param($App, $Cli, $TimeoutMilliseconds)
@@ -233,14 +234,15 @@ public class DotfilesStartupFakeCli {
         function New-ScheduledTaskTrigger { param([switch]$AtLogOn, $User); [pscustomobject]@{ Delay = ''; UserId = $User } }
         function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel); [pscustomobject]@{ UserId = $UserId; LogonType = $LogonType; RunLevel = $RunLevel } }
         function New-ScheduledTaskSettingsSet { param([switch]$AllowStartIfOnBatteries, [switch]$DontStopIfGoingOnBatteries, $MultipleInstances, $ExecutionTimeLimit, $Priority); [pscustomobject]@{ MultipleInstances = $MultipleInstances; ExecutionTimeLimit = $ExecutionTimeLimit; Priority = $Priority } }
+        function Unregister-ScheduledTask { param($TaskName, $TaskPath, $Confirm, $ErrorAction) }
         function Register-ScheduledTask {
             param($TaskName, $TaskPath, $Action, $Trigger, $Principal, $Settings, $Description, [switch]$Force)
             if ($script:denyRegistration) { throw 'fixture registration denied' }
             Assert-True ($Trigger.Delay -eq 'PT10S' -and $Principal.RunLevel -eq 'Limited') 'Task timing or privileges changed.'
             Assert-True ($Settings.Priority -eq 6) 'Interactive startup must use normal priority.'
             Assert-True ($Settings.MultipleInstances -eq 'IgnoreNew') 'Task permits duplicate invocations.'
-            Assert-True ($Action.Execute -like '*\wscript.exe') 'Task must use the console-free launcher.'
-            Assert-True ($Action.Arguments.Contains('Start-GlazeWM.vbs')) 'Task omitted hidden launcher.'
+            Assert-True ($Action.Execute -like '*\DesktopLauncher.exe') 'Task must use the console-free launcher.'
+            Assert-True ($Action.Arguments.StartsWith('startup ')) 'Task omitted hidden launcher.'
             Assert-True ($Action.Arguments.Contains($cli)) 'Task omitted the quoted CLI argument.'
         }
         Register-DesktopStartup -ScoopRoot $scoop -LauncherDirectory $installed -StartupDirectory $shortcuts -Diagnostics

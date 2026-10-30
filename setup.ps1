@@ -5,6 +5,7 @@ param(
     [switch]$NoRestart,
     [switch]$WithLauncher,
     [switch]$StartupDiagnostics,
+    [switch]$KeepOptionalStartupApps,
     [switch]$WithoutZebar,
     [ValidateSet('Auto', 'Native', 'Overlay', 'None')][string]$WallpaperMode,
     [switch]$WithWsl,
@@ -43,7 +44,7 @@ foreach ($app in @('glazewm', 'zebar')) {
 $wallpaperArguments = @{}
 if ($PSBoundParameters.ContainsKey('WallpaperMode')) { $wallpaperArguments.WallpaperMode = $WallpaperMode }
 & (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart -WithoutZebar:$WithoutZebar @wallpaperArguments
-& (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1') -Diagnostics:$StartupDiagnostics
+& (Join-Path $PSScriptRoot 'windows\Enable-Startup.ps1') -Diagnostics:$StartupDiagnostics -DisableDiagnostics:(!$StartupDiagnostics)
 
 if ($WithLauncher) {
     foreach ($app in @('flow-launcher', 'everything')) {
@@ -52,6 +53,11 @@ if ($WithLauncher) {
         }
     }
     & (Join-Path $PSScriptRoot 'windows\Configure-Launcher.ps1') -NoStart:$NoRestart
+}
+
+if (-not $KeepOptionalStartupApps) {
+    . (Join-Path $PSScriptRoot 'windows\DesktopSettings.ps1')
+    Disable-OptionalStartupApps
 }
 
 if ($WithWsl) {

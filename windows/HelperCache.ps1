@@ -43,3 +43,45 @@ function Initialize-DesktopRuntime {
         -Directory $Directory -Build:$Build
     if (-not ('Dotfiles.Desktop.MonitorProbe' -as [type])) { $null = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($assembly)) }
 }
+
+function Install-DesktopLauncher {
+    param([string]$Directory = $PSScriptRoot)
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+    $source = Join-Path $PSScriptRoot 'DesktopLauncher.cs'
+    $temporary = Join-Path $Directory (([guid]::NewGuid().ToString('N')) + '.exe')
+    try {
+        $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+        if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
+        $compilerOutput = & $compiler /nologo /target:winexe /out:$temporary $source
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $temporary)) { throw ('Desktop launcher compilation failed: ' + ($compilerOutput -join "`n")) }
+        $probe = New-Object Diagnostics.Process
+        $probe.StartInfo.FileName = $temporary
+        $probe.StartInfo.Arguments = 'invalid-mode'
+        $probe.StartInfo.UseShellExecute = $false
+        $probe.StartInfo.CreateNoWindow = $true
+        try {
+            try { $null = $probe.Start() }
+            catch {
+                $failure = $_.Exception
+                while ($failure.InnerException) { $failure = $failure.InnerException }
+                $detail = "Launcher execution failed: $failure; exists=$(Test-Path -LiteralPath $temporary); SHA256=$((Get-FileHash -LiteralPath $temporary -ErrorAction SilentlyContinue).Hash)"
+                if ($failure -is [ComponentModel.Win32Exception]) { $detail += "; Win32=$($failure.NativeErrorCode)" }
+                throw $detail
+            }
+            if (-not $probe.WaitForExit(5000)) { $probe.Kill(); throw 'Launcher validation timed out.' }
+            if ($probe.ExitCode -ne 1) { throw 'Launcher validation failed.' }
+        } finally { $probe.Dispose() }
+        Move-Item -LiteralPath $temporary -Destination (Join-Path $Directory 'DesktopLauncher.exe') -Force
+    } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary } }
+}
+
+function Start-ConsoleFreeProcess {
+    param([string]$FilePath, [string]$Arguments = '')
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $FilePath
+    $info.Arguments = $Arguments
+    $info.WorkingDirectory = Split-Path -Parent $FilePath
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    return [Diagnostics.Process]::Start($info)
+}

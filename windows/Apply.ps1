@@ -52,7 +52,7 @@ New-Item -ItemType Directory -Path $backupPath | Out-Null
 $hadConfig = Test-Path -LiteralPath $configPath -PathType Leaf
 $hadSettings = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $hadPack = Test-Path -LiteralPath $packPath -PathType Container
-$helperFiles = @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
+$helperFiles = @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'DesktopLauncher.cs', 'Invoke-DesktopLauncher.ps1', 'DesktopLauncher.exe', 'HelperCache.ps1',
     'DesktopRuntime.cs', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
 $script:settingsBackup = $backupPath
 $script:backupEntries = @()
@@ -79,9 +79,10 @@ if ($hadPack) {
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $backupPath 'previous-state.json') -Encoding UTF8
 
 try {
+    Install-DesktopLauncher -Directory (Split-Path -Parent $configPath)
     New-Item -ItemType Directory -Path (Split-Path -Parent $configPath) -Force | Out-Null
     New-Item -ItemType Directory -Path (Split-Path -Parent $settingsPath) -Force | Out-Null
-    foreach ($name in @($helperFiles | Where-Object { $_ -notin @('desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json') })) {
+    foreach ($name in @($helperFiles | Where-Object { $_ -notin @('desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json', 'DesktopLauncher.exe') })) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path (Split-Path -Parent $configPath) $name) -Force
     }
     if ($hadPack) { Remove-Item -LiteralPath $packPath -Recurse -Force }

@@ -198,7 +198,7 @@ try {
     & (Join-Path $windows 'Apply.ps1') -MonitorCount 2 -NoRestart -WithoutZebar -WallpaperMode None
     $config = Get-Content -LiteralPath (Join-Path $installed 'config.yaml') -Raw
     Assert-True (-not $config.Contains("- 'shell-exec zebar'")) 'WithoutZebar still starts Zebar.'
-    Assert-True ($config.Contains('Watch-FlowWorkspace.ps1') -and $config.Contains('-Restart') -and $config.Contains('-Stop')) 'Helper lifecycle commands were lost.'
+    Assert-True ($config.Contains('DesktopLauncher.exe') -and $config.Contains(' reload') -and $config.Contains(' shutdown')) 'Helper lifecycle commands were lost.'
     Assert-True ($config.Contains("name: '6', bind_to_monitor: 1")) 'Monitor assignments changed.'
     foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs')) {
         Assert-True ([IO.File]::ReadAllText((Join-Path $installed $name)) -eq [IO.File]::ReadAllText((Join-Path $windows $name))) "Helper installation differs: $name"

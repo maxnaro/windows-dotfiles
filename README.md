@@ -75,7 +75,7 @@ are retained. If registration is denied, existing shortcuts and opt-in remain
 intact. A company restriction on task registration requires IT help.
 
 Startup logging is always enabled at `%USERPROFILE%\.glzr\glazewm\startup.log`.
-Startup runs invisibly through Windows Script Host. Timestamped stages, readiness
+Startup uses a console-free Windows launcher compiled during installation with the existing .NET Framework compiler. Timestamped stages, readiness
 results, and errors remain in the log. Readiness checks share a forty-five-second
 deadline. Success and failure both exit automatically; failures return a nonzero
 code to Task Scheduler without a dialog or keypress. Application processes remain
@@ -257,7 +257,7 @@ configuration and gracefully restart GlazeWM. Keep the default ten-second logon
 delay until the measurements show that changing it would help.
 
 Disable future captures with `.\windows\Enable-Startup.ps1 -DisableDiagnostics`.
-Ordinary setup preserves the diagnostics setting; old captures remain for comparison.
+Ordinary setup disables automatic captures; use `setup.ps1 -StartupDiagnostics` to opt in. Old captures remain for comparison.
 
 ## Spotlight-style app and filename search
 
@@ -480,3 +480,37 @@ records which targets originally existed.
 - GlazeWM: https://github.com/glzr-io/glazewm
 - Zebar starter widget source: https://github.com/glzr-io/zebar/tree/main/resources/starter
 - WSL commands: https://learn.microsoft.com/en-us/windows/wsl/basic-commands
+
+### Reproducible startup updates
+
+From a fresh clone, run `./setup.ps1` in Windows PowerShell 5.1 as your normal user.
+After pulling changes, run `./setup.ps1 -NoRestart` to install and build the helpers,
+then reload/restart GlazeWM. `-WithLauncher` opts into Flow and Everything; existing
+launcher opt-in is retained. Custom `$env:SCOOP` roots and paths with spaces are supported.
+`windows/Enable-Startup.ps1` repairs the launcher, lifecycle hooks and logon task.
+`windows/Enable-FlowWorkspace.ps1` also builds the launcher for targeted Flow updates.
+Generated binaries and helper caches are not tracked.
+
+Setup removes matching current-user Firefox and Adobe Acrobat Synchronizer Run
+entries and the Send to OneNote startup shortcut, backing them up first. Use
+`-KeepOptionalStartupApps` to keep them. This policy runs only during setup;
+Teams, OneDrive, device/security utilities and management tasks are preserved.
+Restore a printed backup with `windows/Restore-DesktopSettings.ps1 -BackupPath <path>`;
+startup backups include the previous task XML, registry value types and shortcuts.
+Startup-only restoration leaves unrelated running applications alone.
+
+The launcher supports `startup [GlazeCli]`, `companions`, `shutdown`, and `reload`.
+The first three wait and return the PowerShell exit code; reload detaches the helper.
+Errors are recorded in `launcher-errors.log` and per-invocation `launcher-<mode>-<PID>.log` files beside the launcher.
+Manual interactive terminals continue to use `Start-GlazeWM.cmd`.
+
+After installation, check reload and workspace switching, then validate a fresh
+sign-in separately: prompt tiling, working Alt+Space, bars on every monitor and no
+startup terminal. Zebar readiness requires visible bars on every monitor for three seconds.
+
+Launcher installation currently fails validation on this machine with native Windows
+error 5 (Access is denied), even though the compiled file exists. Minimal generated
+executables run successfully; no specific enforcing policy has been identified.
+The installer reports the executable hash and native error and retains the previous
+configuration. Do not install until the launcher suite passes. Correlate the reported
+hash and time with application-control and endpoint-security events for IT review.

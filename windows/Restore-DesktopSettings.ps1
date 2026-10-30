@@ -26,17 +26,7 @@ if ($hasDesktopState -or (Test-Path -LiteralPath $wallpaperSnapshot)) {
         Initialize-DesktopRuntime -Directory (Join-Path $env:USERPROFILE '.glzr\glazewm') -Build
     }
 }
-foreach ($name in @('PowerToys', 'PowerToys.FancyZones', 'PowerToys.PowerLauncher', 'Microsoft.CmdPal*', 'Flow.Launcher', 'Everything')) {
-    if (-not $NoRestart) { Stop-DesktopApp $name }
-}
-foreach ($entry in $entries) {
-    if ($entry.Existed) {
-        New-Item -ItemType Directory -Path (Split-Path -Parent $entry.Path) -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $BackupPath $entry.Backup) -Destination $entry.Path -Force
-    } elseif (Test-Path -LiteralPath $entry.Path -PathType Leaf) {
-        Remove-Item -LiteralPath $entry.Path
-    }
-}
+Restore-StartupBackup $BackupPath
 $statePath = Join-Path $BackupPath 'previous-state.json'
 if (Test-Path -LiteralPath $statePath) {
     $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json

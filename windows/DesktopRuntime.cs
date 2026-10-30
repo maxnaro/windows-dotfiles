@@ -97,6 +97,28 @@ namespace Dotfiles.Desktop {
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
         [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+        public static bool BarsVisible(int process) {
+            var covered = new HashSet<string>();
+            EnumWindows((window, unused) => {
+                uint owner; GetWindowThreadProcessId(window, out owner);
+                if (owner != process || !IsWindowVisible(window) || IsIconic(window)) return true;
+                int cloaked; DwmGetWindowAttribute(window, 14, out cloaked, 4);
+                NativeRect rect; GetWindowRect(window, out rect);
+                if (cloaked == 0 && rect.Right > rect.Left && rect.Bottom > rect.Top)
+                    foreach (var screen in Screen.AllScreens) {
+                        var bounds = screen.Bounds;
+                        if (rect.Left < bounds.Right && rect.Right > bounds.Left && rect.Top < bounds.Bottom && rect.Bottom > bounds.Top)
+                            covered.Add(screen.DeviceName);
+                    }
+                return true;
+            }, IntPtr.Zero);
+            foreach (var screen in Screen.AllScreens) if (!covered.Contains(screen.DeviceName)) return false;
+            return true;
+        }
+        [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+        [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out NativeRect r);
+        [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out int v, int n);
         public static bool EverythingResponds(int process) {
             bool ready = false;
             EnumWindows((window, unused) => {
