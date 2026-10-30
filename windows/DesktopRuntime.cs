@@ -178,6 +178,8 @@ namespace Dotfiles.Desktop {
     }
 
     public sealed class WallpaperWindow : Form {
+        IntPtr desktopHost;
+        IntPtr desktopAfter = new IntPtr(1);
         readonly Image image;
         public WallpaperWindow(Image picture, Rectangle bounds) {
             image = picture; Text = "Dotfiles wallpaper"; Name = "DotfilesWallpaper";
@@ -190,9 +192,56 @@ namespace Dotfiles.Desktop {
             get { var p = base.CreateParams; p.ExStyle |= 0x08000000 | 0x80 | 0x80000 | 0x20; return p; }
         }
         protected override void OnShown(EventArgs e) {
-            base.OnShown(e); SetLayeredWindowAttributes(Handle, 0, 255, 2);
-            SetWindowPos(Handle, new IntPtr(1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            base.OnShown(e); Hide();
+            if (!AttachDesktop()) return;
+            SetLayeredWindowAttributes(Handle, 0, 255, 2);
+            Show();
+            SetWindowPos(Handle, desktopAfter, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
         }
+        bool AttachDesktop() {
+            IntPtr host = IntPtr.Zero;
+            var progman = FindWindow("Progman", null);
+            if (progman == IntPtr.Zero) return false;
+            IntPtr result;
+            SendMessageTimeout(progman, 0x052C, IntPtr.Zero, IntPtr.Zero, 2, 1000, out result);
+            EnumWindows((h, l) => {
+                if (FindWindowEx(h, IntPtr.Zero, "SHELLDLL_DefView", null) != IntPtr.Zero) {
+                    host = FindWindowEx(IntPtr.Zero, h, "WorkerW", null);
+                    if (host == IntPtr.Zero) host = h;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            if (host == IntPtr.Zero) return false;
+            var origin = new Point(Left, Top);
+            MapWindowPoints(IntPtr.Zero, host, ref origin, 1);
+            SetWindowLong(Handle, -16, (GetWindowLong(Handle, -16) & ~unchecked((int)0x80000000)) | 0x40000000);
+            if (SetParent(Handle, host) == IntPtr.Zero && GetParent(Handle) != host) return false;
+            desktopHost = host;
+            var icons = FindWindowEx(host, IntPtr.Zero, "SHELLDLL_DefView", null);
+            desktopAfter = icons == IntPtr.Zero ? new IntPtr(1) : icons;
+            Location = origin;
+            return true;
+        }
+        public void CheckHost() {
+            if (desktopHost != IntPtr.Zero && IsWindow(desktopHost) && GetParent(Handle) == desktopHost) return;
+            Hide();
+            if (AttachDesktop()) {
+                Show();
+                SetWindowPos(Handle, desktopAfter, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            }
+        }
+        [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+        [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
+        delegate bool EnumProc(IntPtr h, IntPtr l);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc c, IntPtr l);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr FindWindow(string c, string t);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+        [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr h, IntPtr p);
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+        [DllImport("user32.dll")] static extern int MapWindowPoints(IntPtr a, IntPtr b, ref Point p, uint n);
+        [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r);
         public static RectangleF Cover(Size image, Size target) {
             float scale = Math.Max((float)target.Width / image.Width, (float)target.Height / image.Height);
             return new RectangleF((target.Width - image.Width * scale) / 2, (target.Height - image.Height * scale) / 2, image.Width * scale, image.Height * scale);
@@ -217,7 +266,7 @@ namespace Dotfiles.Desktop {
             Rebuild();
             SystemEvents.DisplaySettingsChanged += DisplayChanged;
             SystemEvents.PowerModeChanged += PowerChanged;
-            timer.Tick += delegate { if (stop.WaitOne(0)) ExitThread(); };
+            timer.Tick += delegate { if (stop.WaitOne(0)) ExitThread(); else foreach (var window in windows) window.CheckHost(); };
             timer.Start(); ready.Set();
         }
         void Rebuild() {
