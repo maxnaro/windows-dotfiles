@@ -16,9 +16,10 @@
   --icon-size: 16px;
 
   --background: #221a0f;
-  --surface: #362712;
-  --surface-active: #4e3819;
-  --border: #644c2c;
+  --bar-background: rgba(34, 26, 15, 0.78);
+  --surface: rgba(235, 194, 149, 0.05);
+  --surface-active: rgba(244, 170, 43, 0.12);
+  --border: rgba(235, 194, 149, 0.14);
   --foreground: #d3af86;
   --foreground-bright: #ebc295;
   --foreground-muted: #aa8c6b;
@@ -50,6 +51,7 @@ body {
   font-size: var(--text-size);
   font-variant-numeric: tabular-nums;
   overflow: hidden;
+  background: transparent;
 }
 
 /* Text buttons inherit the bar font; icons use their own SVG geometry. */
@@ -72,17 +74,18 @@ body,
 
 #root {
   box-sizing: border-box;
-  background: var(--background);
+  background: var(--bar-background);
   border-bottom: 1px solid var(--border);
 }
 
 .app {
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   height: 100%;
-  padding: 4px 1.5vw;
+  padding: 4px 16px;
+  column-gap: 20px;
 }
 
 .left,
@@ -90,6 +93,11 @@ body,
 .right {
   display: flex;
   align-items: center;
+  min-width: 0;
+}
+
+.left {
+  gap: 12px;
 }
 
 .center {
@@ -99,6 +107,7 @@ body,
 
 .right {
   justify-self: end;
+  gap: 16px;
 }
 
 .network,
@@ -108,52 +117,45 @@ body,
 .weather {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   white-space: nowrap;
-}
-
-.logo,
-.binding-mode,
-.tiling-direction,
-.paused-button,
-.network,
-.memory,
-.cpu,
-.battery {
-  margin-right: 20px;
 }
 
 .workspaces {
   display: flex;
   align-items: center;
+  gap: 4px;
 }
 
 .workspace {
-  background: var(--surface);
-  margin-right: 4px;
-  padding: 4px 8px;
+  background: transparent;
+  min-width: 27px;
+  padding: 4px 7px;
   color: var(--foreground-muted);
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 5px;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .workspace.displayed {
   background: var(--surface-active);
   color: var(--foreground-bright);
-  border-color: var(--border);
+  border-color: transparent;
 }
 
 .workspace:hover {
   background: var(--surface-active);
   color: var(--foreground-bright);
-  border-color: var(--accent);
+  border-color: transparent;
 }
 
 .workspace.focused {
-  background: var(--accent);
-  color: var(--background);
-  border-color: var(--accent);
+  background: rgba(244, 170, 43, 0.16);
+  color: var(--accent);
+  border-color: transparent;
+  box-shadow: inset 0 -2px var(--accent);
+  font-weight: 600;
 }
 
 button:focus-visible {
@@ -164,9 +166,9 @@ button:focus-visible {
 .binding-mode,
 .tiling-direction,
 .paused-button {
-  background: var(--surface-active);
-  color: var(--foreground-bright);
-  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground-muted);
+  border-radius: 5px;
   line-height: 1;
   padding: 4px 8px;
   border: 0;
@@ -198,21 +200,41 @@ button:focus-visible {
   color: var(--red);
 }
 
-.logo,
-.cpu .icon {
+.logo {
   color: var(--accent);
+  opacity: 0.8;
 }
 
+.cpu .icon,
 .memory .icon,
-.battery .icon {
-  color: var(--green);
-}
-
+.battery .icon,
 .weather .icon {
-  color: var(--orange);
+  color: var(--foreground-muted);
 }
 
 .cpu .high-usage,
 .battery .low-battery {
   color: var(--red);
+}
+
+.network {
+  min-width: 0;
+  max-width: 160px;
+}
+
+.network span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace {
+    transition: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .app { column-gap: 12px; padding-inline: 12px; }
+  .right { gap: 10px; }
+  .network { max-width: 100px; }
 }

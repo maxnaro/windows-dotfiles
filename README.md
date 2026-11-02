@@ -121,8 +121,10 @@ after installing the config to reload GlazeWM without restarting it.
 
 ## Chocolatier / Kimbie appearance
 
-The bar uses a fixed dark chocolate background, cream text, amber active
-workspaces, and muted green/teal status icons, inspired by
+The bar uses a translucent dark chocolate background (78% opacity), cream text,
+subtle amber workspace highlights, and muted status icons with teal connectivity
+accents. Compact spacing and a thin active-workspace underline keep the layout
+quiet while preserving readable text. The palette is inspired by
 [Chocolatier](https://github.com/qaptoR-nvim/chocolatier.nvim) and
 [Kimbie Dark+](https://marketplace.visualstudio.com/items?itemName=dnamsons.kimbie-dark-plus).
 GlazeWM uses matching amber focused-window borders and brown inactive borders.
