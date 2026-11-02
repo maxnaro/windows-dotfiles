@@ -288,9 +288,17 @@ the workspace displaying Flow and preserves it when Flow cloaks or hides. This
 keeps an empty workspace focused while the launched app is starting, even if
 Windows briefly reactivates a window on another workspace. New windows are brought
 to the invoking workspace; existing windows stay in place and focus follows them
-to their workspace when matching result metadata identifies them. Window Walker
-receives priority 2 (or retains a higher priority) and searches cloaked windows.
-Reusing a browser or terminal brings its whole window, including its tabs.
+to their workspace when matching result metadata identifies them. The native
+[GlazeWM Windows plugin](https://github.com/maxnaro/flow-glazewm) searches GlazeWM
+state directly and focuses the selected UUID/HWND without relying on accessibility
+metadata. Its installer sets priority to at least 2 and disables duplicate Window
+Walker results. Ordinary application-launch placement remains handled by the helper.
+When using Window Walker instead, launcher configuration gives it priority 2
+(or retains a higher priority) and enables cloaked-window search.
+GlazeWM shows windows from all workspaces in the native taskbar so Window Walker
+can discover them: its taskbar filter otherwise excludes hidden-workspace windows
+even when cloaked-window search is enabled.
+Switching to an existing browser or terminal focuses its whole window, including its tabs.
 The helper recognizes Enter and clicks on accessible result rows; GlazeWM's
 `Alt+1..9` workspace shortcuts retain precedence over Flow's result shortcuts.
 Escape or toggling Flow closed cancels launch placement but restores the invoking
@@ -381,6 +389,7 @@ Validate the configuration helpers and diagnostic timeout handling with:
 .\windows\tests\Test-Startup.ps1
 .\windows\tests\Test-StartupPerformance.ps1
 .\windows\tests\Test-FlowWorkspace.ps1
+.\windows\tests\Test-StandaloneStartup.ps1
 ```
 
 The performance suite uses mocked wallpaper APIs and a loopback WebSocket server;
@@ -482,3 +491,35 @@ records which targets originally existed.
 - GlazeWM: https://github.com/glzr-io/glazewm
 - Zebar starter widget source: https://github.com/glzr-io/zebar/tree/main/resources/starter
 - WSL commands: https://learn.microsoft.com/en-us/windows/wsl/basic-commands
+
+
+## Standalone startup for another PC
+
+Download only [Install-GlazeStartup.ps1](https://github.com/maxnaro/flow-glazewm/releases/latest/download/Install-GlazeStartup.ps1) and run it in ordinary Windows
+PowerShell. GlazeWM and Zebar must already be installed. It creates a per-user
+sign-in task and preserves that PC's configuration; no dotfiles checkout is needed.
+
+```powershell
+.\Install-GlazeStartup.ps1
+# Explicit paths are supported when discovery cannot locate the executables:
+.\Install-GlazeStartup.ps1 -GlazeWMPath 'C:\Apps\GlazeWM\GlazeWM.exe' -ZebarPath 'C:\Apps\Zebar\zebar.exe'
+.\Install-GlazeStartup.ps1 -Uninstall
+```
+
+Logs remain at `%LOCALAPPDATA%\GlazeWMStartup\startup.log`.
+The independent Rust Flow plugin is at https://github.com/maxnaro/flow-glazewm,
+linked here as `windows/plugins/flow-glazewm`. Initialize it with
+`git submodule update --init windows/plugins/flow-glazewm`.
+
+The standalone startup tests use temporary files and mocked scheduled tasks.
+Their optional `-Live` switch also queries an existing GlazeWM IPC server while
+mocking application launches. Native window selection can be verified with
+`windows/tests/Test-NativeFlow.ps1 -PluginExe <installed-plugin-executable>`;
+`-ClickResult` and `-MinimizeTarget` cover mouse selection and restoration.
+This desktop test restores the previously focused window and checks that existing
+windows retain their workspace assignments.
+
+The extended `Test-FlowWorkspace.ps1 -LaunchApps` fixture is not currently passing:
+it can lose Flow focus or the invoking empty workspace. The native window-selection
+checks pass independently; the existing application-launch placement policy is
+unchanged by the native handoff integration.

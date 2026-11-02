@@ -4,6 +4,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -340,6 +343,7 @@ namespace Dotfiles.FlowWorkspace
     sealed class InputEvent
     {
         public string Kind, ExpectedText;
+        public ManualResetEventSlim Acknowledged;
         public long Handle, Epoch;
         public int X, Y;
         public bool IsFlow;
@@ -370,7 +374,7 @@ namespace Dotfiles.FlowWorkspace
 
     public sealed class Bridge : IDisposable
     {
-        public const string Version = "3-focus-existing";
+        public const string Version = "4-native-handoff";
         readonly BlockingCollection<InputEvent> events = new BlockingCollection<InputEvent>();
         readonly CancellationTokenSource lifetime = new CancellationTokenSource();
         readonly SessionState state = new SessionState();
@@ -382,7 +386,7 @@ namespace Dotfiles.FlowWorkspace
         readonly IpcSession commands;
         readonly List<IntPtr> windowHooks = new List<IntPtr>();
         IntPtr keyboardHook, mouseHook;
-        Thread worker, tracker, automation;
+        Thread worker, tracker, automation, control;
         Snapshot publishedSnapshot;
         SelectionCache selection;
         long cancellationEpoch, sessionEpoch, automationHandle, resultRevision;
@@ -435,7 +439,40 @@ namespace Dotfiles.FlowWorkspace
             automation = new Thread(ReadSelections) { IsBackground = true, Name = "Optional Flow result metadata" };
             automation.SetApartmentState(ApartmentState.MTA);
             automation.Start();
+            control = new Thread(Control) { IsBackground = true, Name = "Native Flow handoff" };
+            control.Start();
             Log("started version=" + Version);
+        }
+
+        void Control()
+        {
+            string name = "DotfilesFlowWorkspaceControl-" + Process.GetCurrentProcess().SessionId;
+            var security = new PipeSecurity();
+            security.SetAccessRuleProtection(true, false);
+            security.AddAccessRule(new PipeAccessRule(WindowsIdentity.GetCurrent().User, PipeAccessRights.FullControl, AccessControlType.Allow));
+            while (!lifetime.IsCancellationRequested) {
+                try {
+                    using (var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous, 1024, 1024, security)) {
+                        var connected = pipe.BeginWaitForConnection(null, null);
+                        while (!connected.AsyncWaitHandle.WaitOne(100))
+                            if (lifetime.IsCancellationRequested) return;
+                        pipe.EndWaitForConnection(connected);
+                        var reader = new StreamReader(pipe);
+                        var line = reader.ReadLineAsync();
+                        if (!line.Wait(2000) || line.Result != "release") continue;
+                        var acknowledged = new ManualResetEventSlim(false);
+                        Enqueue(new InputEvent { Kind = "native-handoff", Acknowledged = acknowledged, Epoch = Interlocked.Read(ref cancellationEpoch) });
+                        if (!acknowledged.Wait(2500)) continue;
+                        byte[] response = Encoding.ASCII.GetBytes("OK\n");
+                        pipe.Write(response, 0, response.Length);
+                        pipe.Flush();
+                    }
+                } catch (Exception ex) {
+                    if (!lifetime.IsCancellationRequested) Log("native handoff unavailable: " + ex.GetType().Name);
+                    if (lifetime.Token.WaitHandle.WaitOne(250)) return;
+                }
+            }
         }
 
         void Enqueue(InputEvent input) { if (!lifetime.IsCancellationRequested) events.TryAdd(input); }
@@ -619,6 +656,7 @@ namespace Dotfiles.FlowWorkspace
 
         void Handle(InputEvent input)
         {
+            if (input.Kind == "native-handoff") { if (input.Epoch == Interlocked.Read(ref cancellationEpoch)) state.Cancel(); input.Acknowledged.Set(); Log("origin guard released for native selection"); return; }
             if (input.Kind == "refresh") { Refresh(); return; }
             if (input.Kind == "cancel" || input.Kind == "disconnect")
             {
@@ -808,6 +846,7 @@ namespace Dotfiles.FlowWorkspace
             if (mouseHook != IntPtr.Zero) Native.UnhookWindowsHookEx(mouseHook);
             if (worker != null) worker.Join(2500);
             if (tracker != null) tracker.Join(2500);
+            if (control != null) control.Join(2500);
             commands.Dispose();
             // UIA is deliberately isolated on a background MTA; a stuck provider
             // must not hold shutdown or the input/event worker hostage.

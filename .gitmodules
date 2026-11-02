@@ -1,0 +1,3 @@
+[submodule "windows/plugins/flow-glazewm"]
+	path = windows/plugins/flow-glazewm
+	url = https://github.com/maxnaro/flow-glazewm.git

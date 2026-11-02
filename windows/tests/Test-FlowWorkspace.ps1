@@ -405,7 +405,7 @@ namespace Dotfiles.FlowWorkspace.Tests {
             param([int]$Attempts = 100)
             for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
                 Assert-True ([Dotfiles.FlowWorkspace.Tests.Input]::IsFlow()) 'Flow lost focus while waiting for the fixture result.'
-                $found = @(Find-FixtureResult)
+                $found = @(Find-FixtureResult | Where-Object { $null -ne $_ })
                 if ($found.Count -gt 1) { throw "Fixture result lookup emitted $($found.Count) objects instead of one wrapper." }
                 if ($found.Count) { return ,$found[0] }
                 Start-Sleep -Milliseconds 100
