@@ -176,10 +176,13 @@ namespace Dotfiles.FlowWorkspace
             return window;
         }
 
+        public bool IsExisting(long handle) { return existing.Contains(handle); }
+
         public bool NeedsRestore(Snapshot snapshot, DateTime now)
         {
             return Workspace != null && Hidden && now < Deadline &&
-                snapshot != null && snapshot.Workspace != Workspace;
+                snapshot != null && snapshot.Workspace != Workspace &&
+                !(Committed && existingProcesses.ContainsKey(Candidate) && MatchesProcess(ExpectedText, existingProcesses[Candidate]));
         }
 
         public static bool MatchesProcess(string text, string process)
@@ -367,7 +370,7 @@ namespace Dotfiles.FlowWorkspace
 
     public sealed class Bridge : IDisposable
     {
-        public const string Version = "2-empty-workspace";
+        public const string Version = "3-focus-existing";
         readonly BlockingCollection<InputEvent> events = new BlockingCollection<InputEvent>();
         readonly CancellationTokenSource lifetime = new CancellationTokenSource();
         readonly SessionState state = new SessionState();
@@ -505,6 +508,7 @@ namespace Dotfiles.FlowWorkspace
             if (flow && (key == 0x1b || (key == 0x20 && alt))) return "dismiss";
             if (key == 0x1b) return "cancel";
             if (key == 0x20 && alt) return "intent";
+            if (flow && key == 0x0d && control) return "dismiss";
             if (flow && key == 0x0d && !shift && !alt && !win) return "commit";
             if (flow && key == 0x30 && alt && !control && !shift && !win) return "quick";
             if (!flow && key != 0x10 && key != 0x11 && key != 0x12 &&
@@ -681,14 +685,16 @@ namespace Dotfiles.FlowWorkspace
                 if (target == null || sessionEpoch != Interlocked.Read(ref cancellationEpoch)) return;
                 Guid id;
                 if (!Guid.TryParse(target.Id, out id)) { state.Cancel(); return; }
-                if (target.Workspace != origin) commands.Request("command --id " + id + " move --workspace " + workspaceNumber);
+                bool reuse = placement.IsExisting(target.Handle);
+                string destination = reuse ? target.Workspace : origin;
+                if (!reuse && target.Workspace != origin) commands.Request("command --id " + id + " move --workspace " + workspaceNumber);
                 if (sessionEpoch != Interlocked.Read(ref cancellationEpoch)) { state.Cancel(); return; }
                 // Move can change OS foreground itself. User cancellation, rather
                 // than foreground equality after moving, controls the follow-focus.
                 commands.Request("command focus --container-id " + id);
                 var after = Snapshot.Parse(commands.Request("query workspaces"));
                 ManagedWindow verified;
-                if (after.Workspace != origin || !after.Windows.TryGetValue(target.Handle, out verified) || verified.Workspace != origin)
+                if (after.Workspace != destination || !after.Windows.TryGetValue(target.Handle, out verified) || verified.Workspace != destination)
                     throw new IOException("Placement postcondition failed.");
                 Log("placed process=" + target.Process + "; id=" + id + "; workspace=" + origin);
                 state.Cancel();

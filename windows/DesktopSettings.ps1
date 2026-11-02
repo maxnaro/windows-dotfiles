@@ -188,3 +188,19 @@ function Register-DesktopStartup {
     Write-Host "Startup log: $(Join-Path $LauncherDirectory 'startup.log')"
     if ($enableLaunchers) { Write-Host 'Flow and Everything will start with GlazeWM; Startup-folder delays are bypassed.' }
 }
+
+function Update-WindowWalkerSettings {
+    param($Settings, [string]$FlowData)
+    if (-not $Settings.PSObject.Properties['PluginSettings'] -or
+        -not $Settings.PluginSettings.PSObject.Properties['Plugins']) { return }
+    foreach ($entry in $Settings.PluginSettings.Plugins.PSObject.Properties) {
+        if ($entry.Name -ne 'F737A9223560B3C6833B5FFB8CDF78E5') { continue }
+        if (-not $entry.Value.PSObject.Properties['Priority'] -or $entry.Value.Priority -lt 2) {
+            Set-JsonProperty $entry.Value 'Priority' 2
+        }
+        $path = Join-Path $FlowData 'Settings\Plugins\Flow.Plugin.WindowWalker\Settings.json'
+        $pluginSettings = Read-SettingJson $path
+        Set-JsonProperty $pluginSettings 'SearchCloakedWindows' $true
+        Write-SettingText $path ($pluginSettings | ConvertTo-Json -Depth 50)
+    }
+}

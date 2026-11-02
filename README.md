@@ -287,7 +287,9 @@ Flow appears on the focused monitor. A hidden, unelevated workspace helper remem
 the workspace displaying Flow and preserves it when Flow cloaks or hides. This
 keeps an empty workspace focused while the launched app is starting, even if
 Windows briefly reactivates a window on another workspace. New windows are brought
-to the invoking workspace; existing windows require matching result metadata.
+to the invoking workspace; existing windows stay in place and focus follows them
+to their workspace when matching result metadata identifies them. Window Walker
+receives priority 2 (or retains a higher priority) and searches cloaked windows.
 Reusing a browser or terminal brings its whole window, including its tabs.
 The helper recognizes Enter and clicks on accessible result rows; GlazeWM's
 `Alt+1..9` workspace shortcuts retain precedence over Flow's result shortcuts.

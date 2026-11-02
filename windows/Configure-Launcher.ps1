@@ -98,6 +98,7 @@ if ($settings.PSObject.Properties['PluginSettings'] -and $settings.PluginSetting
         if ($plugin.Value.Name -in @('Explorer', 'Program')) { Set-JsonProperty $plugin.Value 'Disabled' $false }
     }
 }
+Update-WindowWalkerSettings $settings (Split-Path -Parent (Split-Path -Parent $settingsPath))
 Write-SettingText $settingsPath ($settings | ConvertTo-Json -Depth 50)
 $explorerPath = Join-Path $flowData 'Settings\Plugins\Flow.Launcher.Plugin.Explorer\Settings.json'
 $explorer = Read-SettingJson $explorerPath

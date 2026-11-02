@@ -25,6 +25,7 @@ function New-Snapshot {
     }
     return $snapshot
 }
+Assert-True ([Dotfiles.FlowWorkspace.Bridge]::ClassifyKey(13, $true, $false, $true, $false, $false) -eq 'dismiss') 'Ctrl+Enter armed placement instead of dismissing routing.'
 $now = [datetime]::UtcNow
 $snapshot = New-Snapshot
 $state = New-Object Dotfiles.FlowWorkspace.Placement
@@ -511,8 +512,8 @@ namespace Dotfiles.FlowWorkspace.Tests {
                 $null = [Dotfiles.FlowWorkspace.Ipc]::Request("command focus --workspace $origin")
                 Start-Sleep -Milliseconds 500
                 Invoke-FixtureFromFlow
-                $reused = Wait-FixtureOnWorkspace $origin
-                Assert-True ($reused.Id -eq $fixtureWindow.Id) 'Existing fixture was not reused across workspaces.'
+                $reused = Wait-FixtureOnWorkspace $away
+                Assert-True ($reused.Id -eq $fixtureWindow.Id) 'Existing fixture was not focused on its original workspace.'
                 Close-Fixture
                 $null = [Dotfiles.FlowWorkspace.Ipc]::Request("command focus --workspace $origin")
                 Start-Sleep -Milliseconds 500

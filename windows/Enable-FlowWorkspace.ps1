@@ -52,6 +52,7 @@ $running = @(Get-Process -Name Flow.Launcher -ErrorAction SilentlyContinue | Whe
 Stop-DesktopApp 'Flow.Launcher'
 $settings = Read-SettingJson $settingsPath
 Set-JsonProperty $settings 'SearchWindowScreen' 'Focus'
+Update-WindowWalkerSettings $settings (Split-Path -Parent (Split-Path -Parent $settingsPath))
 Write-SettingText $settingsPath ($settings | ConvertTo-Json -Depth 50)
 foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'HelperCache.ps1')) {
     Write-SettingText (Join-Path $installed $name) ([IO.File]::ReadAllText((Join-Path $PSScriptRoot $name)))
