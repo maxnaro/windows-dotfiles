@@ -536,3 +536,6 @@ Workspace switches reveal only the centered workspace panel. Holding Alt reveals
 all three panels. Displayed workspaces use solid teal badges on each monitor;
 the clock emphasizes time over date. The Alt helper retries automatically after
 an unexpected exit, with delays increasing from 1 to 30 seconds.
+
+The GlazeWM dock also appears while either Alt key is held, with all sections visible.
+It hides 1.2 seconds after release. Workspaces stay at monitor center; side sections fit their content.

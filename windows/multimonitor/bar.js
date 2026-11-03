@@ -1,4 +1,4 @@
-import { createProviderGroup, currentWidget } from './vendor/zebar.js';
+import { createProviderGroup, currentWidget, shellSpawn } from './vendor/zebar.js';
 
 const providers = createProviderGroup({
   glazewm: { type: 'glazewm' },
@@ -43,11 +43,19 @@ const batteryLabel = element('span', 'battery-label');
 battery.append(batteryIcon, batteryLabel);
 app.append(battery, workspaces, clock);
 document.getElementById('root').replaceChildren(app);
+const layoutObserver = new ResizeObserver(() => {
+  const midpoint = workspaces.children.length
+    ? workspaces.offsetLeft + workspaces.offsetWidth / 2 : app.offsetWidth / 2;
+  app.style.setProperty('--workspace-offset', `${midpoint}px`);
+});
+layoutObserver.observe(app);
+layoutObserver.observe(workspaces);
 
 // Preserve buttons and keyboard focus when workspace data has not changed.
 let workspaceKey = '';
 let displayedWorkspace;
 let hideTimer;
+let altHeld = false;
 let latestBattery;
 let batteryRequestPending = false;
 function setVisible(visible) {
@@ -62,9 +70,45 @@ function setVisible(visible) {
 function showBriefly() {
   clearTimeout(hideTimer);
   setVisible(true);
-  hideTimer = setTimeout(() => setVisible(false), 1200);
+  hideTimer = setTimeout(() => { if (!altHeld) setVisible(false); }, 1200);
 }
 app.setAttribute('aria-hidden', 'true');
+
+let altWatcher;
+let unloading = false;
+let retryTimer;
+let retryDelay = 1000;
+function scheduleWatcher() {
+  if (unloading) return;
+  retryTimer = setTimeout(startWatcher, retryDelay);
+  retryDelay = Math.min(retryDelay * 2, 30000);
+}
+function startWatcher() {
+void shellSpawn('powershell.exe', [
+  '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', 'Watch-Alt.ps1',
+], { cwd: currentWidget().htmlPath.replace(/[\\/][^\\/]+$/, '') }).then(process => {
+  if (unloading) { process.kill(); return; }
+  altWatcher = process;
+  process.onStdout(line => {
+    const state = line.trim();
+    if (state === 'down' || state === 'up') retryDelay = 1000;
+    if (state === 'down' && !altHeld) {
+      altHeld = true;
+      clearTimeout(hideTimer);
+      setVisible(true);
+    } else if (state === 'up' && altHeld) {
+      altHeld = false;
+      showBriefly();
+    }
+  });
+  process.onStderr(console.error);
+  process.onExit(() => {
+    if (altHeld && !unloading) { altHeld = false; showBriefly(); }
+    scheduleWatcher();
+  });
+}).catch(error => { console.error(error); scheduleWatcher(); });
+}
+startWatcher();
 
 // Keep the native subscription stable across simultaneous reveals on all monitors.
 // Cache readings silently; only opening the overlay changes the battery display.
@@ -124,4 +168,4 @@ render();
 providers.onOutput(render);
 providers.onError(render);
 
-window.addEventListener('beforeunload', () => { clearTimeout(hideTimer); void providers.stopAll(); }, { once: true });
+window.addEventListener('beforeunload', () => { unloading = true; clearTimeout(retryTimer); clearTimeout(hideTimer); altWatcher?.kill(); layoutObserver.disconnect(); void providers.stopAll(); }, { once: true });

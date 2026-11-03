@@ -291,7 +291,7 @@ button:focus-visible {
   flex-direction: row;
   gap: 6px;
   max-width: 100%;
-  overflow-x: auto;
+  overflow: visible;
   scrollbar-width: none;
 }
 
@@ -382,12 +382,27 @@ button:focus-visible {
 .workspace-rail .clock-time { font-weight: 600; }
 .workspace-rail .clock-date { color: var(--foreground-muted); }
 
-/* Equal side tracks keep the workspace group at the monitor center. */
+/* Content-sized sides, anchored by the workspace midpoint. */
+.workspace-rail #root { position: relative; }
 .workspace-rail .app {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  width: max-content;
+  position: absolute;
+  left: calc(50% - var(--workspace-offset, 0px));
+  margin: 0;
+  gap: 10px;
 }
-.workspace-rail .battery-status { grid-column: 1; grid-row: 1; justify-self: end; }
-.workspace-rail .workspaces { grid-column: 2; grid-row: 1; overflow: visible; }
-.workspace-rail .clock { grid-column: 3; grid-row: 1; justify-self: start; gap: 0; }
+.workspace-rail .battery-status { padding-right: 10px; }
+.workspace-rail .clock { padding-left: 10px; gap: 0; }
+.workspace-rail .battery-status,
+.workspace-rail .clock { position: relative; }
+.workspace-rail .battery-status::after,
+.workspace-rail .clock::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  height: 14px;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.65;
+}
+.workspace-rail .battery-status::after { right: 0; }
+.workspace-rail .clock::before { left: 0; }

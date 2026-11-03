@@ -26,7 +26,7 @@ let clickThrough = false;
 let altOutput;
 let altExit;
 let killed = false;
-const context = vm.createContext({ document, window, console,
+const context = vm.createContext({ document, window, console, ResizeObserver: class { observe() {} disconnect() {} },
   spawnFactory: async () => ({ onStderr: () => {}, onStdout: callback => { altOutput = callback; }, onExit: callback => { altExit = callback; }, kill: () => { killed = true; } }),
   setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
   clearTimeout: id => timers.delete(id),
@@ -34,7 +34,7 @@ const context = vm.createContext({ document, window, console,
   providerFactory: value => { config = value; return group; },
 });
 const bar = readFileSync(new URL('../multimonitor/bar.js', import.meta.url), 'utf8');
-assert.match(bar, /^import \{ createProviderGroup, currentWidget \} from '\.\/vendor\/zebar\.js';/);
+assert.match(bar, /^import \{ createProviderGroup, currentWidget, shellSpawn \} from '\.\/vendor\/zebar\.js';/);
 vm.runInContext(bar.replace(/^import[^\n]+/, 'const createProviderGroup = providerFactory; const currentWidget = widgetFactory; const shellSpawn = spawnFactory;'), context);
 await new Promise(resolve => setImmediate(resolve));
 assert.deepEqual(Object.keys(config), ['glazewm', 'date', 'battery']);
@@ -121,7 +121,16 @@ assert.equal(timers.has(firstTimer), false, 'Rapid switches cancel previous time
 { const callback = timers.get(timerId); timers.delete(timerId); callback(); }
 assert.equal(app.classList.contains('visible'), false);
 assert.equal(app.getAttribute('aria-hidden'), 'true');
+altOutput('down');
+assert.equal(app.classList.contains('visible'), true);
+update();
+assert.equal(app.classList.contains('visible'), true);
+altOutput('up');
+assert.equal(app.classList.contains('visible'), true);
+{ const callback = timers.get(timerId); timers.delete(timerId); callback(); }
+assert.equal(app.classList.contains('visible'), false);
 window.dispatchEvent(new window.Event('beforeunload'));
+assert.equal(killed, true);
 assert.equal(stopped, true);
 assert.equal(timers.size, 0);
 const html = readFileSync(new URL('../multimonitor/with-glazewm.html', import.meta.url), 'utf8');

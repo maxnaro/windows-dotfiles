@@ -102,14 +102,20 @@
         "*.css",
         "*.js",
         "resources/icons.svg",
-        "vendor/zebar.js"
+        "vendor/zebar.js",
+        "Watch-Alt.ps1"
       ],
       "caching": {
         "defaultDuration": 604800,
         "rules": []
       },
       "privileges": {
-        "shellCommands": []
+        "shellCommands": [
+          {
+            "program": "powershell.exe",
+            "argsRegex": "^-NoProfile -NonInteractive -ExecutionPolicy Bypass -File Watch-Alt\\.ps1$"
+          }
+        ]
       },
       "presets": [
         {
