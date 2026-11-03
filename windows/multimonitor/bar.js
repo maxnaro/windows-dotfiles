@@ -142,7 +142,7 @@ function render() {
   if (clock.dataset.formatted !== formatted) {
     clock.dataset.formatted = formatted;
     const [time, ...date] = formatted.split(' · ');
-    clock.replaceChildren(element('span', 'clock-time', time));
+    clock.replaceChildren(element('span', 'clock-time', time + (date.length ? '\u00a0' : '')));
     if (date.length) clock.append(element('span', 'clock-date', ` · ${date.join(' · ')}`));
   }
   if (output.date?.iso) clock.setAttribute('datetime', output.date.iso);
