@@ -99,9 +99,11 @@ number of monitors.
 - `Alt+Space`: open Flow Launcher when configured, otherwise PowerToys Run.
 - `Alt+C`: cycle focus between tiling, floating, and fullscreen windows.
 
-Zebar docks at the top of every monitor and shows that monitor's workspaces.
-Window and screen-edge gaps are 6px, scaled with each monitor's DPI. Zebar reserves
-its own space above the manual top gap. Cursor jumping between monitors is enabled.
+Zebar briefly shows a click-through workspace indicator at the top of a monitor
+when its displayed workspace changes, sliding down from the top and hiding after
+1.2 seconds. Battery, workspaces, time, and date appear together. Rapid switches
+restart the timer. It reserves no screen space; windows retain GlazeWM’s 6px
+screen-edge gaps, scaled with monitor DPI. Cursor jumping between monitors is enabled.
 
 Use one Windows virtual desktop while using GlazeWM workspaces. `Ctrl+Win+Left/Right`
 continues to switch native Windows desktops and can trigger the upstream layout
@@ -121,20 +123,24 @@ after installing the config to reload GlazeWM without restarting it.
 
 ## Chocolatier / Kimbie appearance
 
-The bar uses a translucent dark chocolate background (78% opacity), cream text,
-subtle amber workspace highlights, and muted status icons with teal connectivity
-accents. Compact spacing and a thin active-workspace underline keep the layout
-quiet while preserving readable text. The palette is inspired by
-[Chocolatier](https://github.com/qaptoR-nvim/chocolatier.nvim) and
-[Kimbie Dark+](https://marketplace.visualstudio.com/items?itemName=dnamsons.kimbie-dark-plus).
-GlazeWM uses matching amber focused-window borders and brown inactive borders.
+The floating GlazeWM indicator uses the terminal's Chocolatier palette: an opaque
+chocolate surface (`#2A201A`), a warm border (`#7D6959`), and a soft black shadow
+to separate the panels from underlying windows. Cream text (`#D3C6AA`) and muted teal
+(`#7EA69F`) for the focused workspace and its thin underline. Centered numbers,
+subtle hover fills, and compact spacing sit inside a small rounded panel.
+The panel has even 6px inner padding around 22px square workspace highlights.
+Its 6px screen-edge inset matches GlazeWM’s gaps. Three floating panels show battery percentage with a charge/charging icon on the left (when available),
+workspaces in the center, and local time and date on the right.
+The 48px-high transparent overlay does not intercept mouse clicks. Battery status
+uses the latest valid reading when the panels open and stays fixed while they
+are visible. Background battery readings refresh every 10 seconds; temporary
+read errors retain the last valid status.
+GlazeWM retains its amber focused-window borders and brown inactive borders.
 
-Zebar uses **JetBrains Mono Nerd Font** at 12px, including workspace labels and
-text buttons. It is already installed on this PC as `JetBrainsMono NF`. On another
-PC, install the font in Windows; a font installed only inside WSL is not available
-to Zebar. Status icons use bundled Lucide SVGs at 16px with a consistent stroke
-and alignment, independently of the text font. They are shared by all three bar
-variants and do not download an icon font. Their license is bundled at
+The overlay prefers **JetBrainsMono RunCat v7**, matching Windows Terminal,
+with JetBrains Mono Nerd Font fallbacks at 12px. Fonts must be installed in
+Windows to be available to Zebar. Other widget variants retain their existing
+palette and bundled Lucide SVG icons; attribution is in
 `windows/multimonitor/resources/lucide-LICENSE`.
 
 To use **Adobe Utopia**, install it in Windows, then change these properties in
@@ -525,3 +531,8 @@ The extended `Test-FlowWorkspace.ps1 -LaunchApps` fixture is not currently passi
 it can lose Flow focus or the invoking empty workspace. The native window-selection
 checks pass independently; the existing application-launch placement policy is
 unchanged by the native handoff integration.
+
+Workspace switches reveal only the centered workspace panel. Holding Alt reveals
+all three panels. Displayed workspaces use solid teal badges on each monitor;
+the clock emphasizes time over date. The Alt helper retries automatically after
+an unexpected exit, with delays increasing from 1 to 30 seconds.

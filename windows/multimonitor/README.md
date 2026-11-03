@@ -18,7 +18,7 @@ Plain and simple.
 
 ### `with-glazewm`
 
-For use with [GlazeWM](https://github.com/glzr-io/glazewm).
+A click-through workspace indicator for [GlazeWM](https://github.com/glzr-io/glazewm), at the top of each monitor. It slides down from the top for 1.2 seconds when that monitor’s displayed workspace changes; subsequent switches restart the timer. It reserves no screen space and stays hidden at startup. One centered dock shows battery percentage with charge/charging icons on the left when available, workspaces precisely centered between equal-width side columns, and local time and date on the right, all vertically centered in a single row. Battery status snapshots the latest valid reading once per opening and is not redrawn by clock ticks. Background readings refresh every 10 seconds without restarting the provider; temporary errors retain the last valid reading. The dock attaches flush to the screen’s top edge, with flat tops, 12px rounded lower corners, no top border, 6px vertical and 12px horizontal padding, 22px square workspace highlights, an opaque chocolate background (`#2A201A`), a warm border (`#7D6959`), a soft black shadow, cream labels, and a teal focused-workspace marker. It prefers JetBrainsMono RunCat v7 at 12px. Workspace switching uses the existing GlazeWM shortcuts; the overlay does not intercept clicks.
 
 ### `with-komorebi`
 

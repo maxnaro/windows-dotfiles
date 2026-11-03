@@ -1,30 +1,15 @@
-import { createProviderGroup } from './vendor/zebar.js';
+import { createProviderGroup, currentWidget } from './vendor/zebar.js';
 
 const providers = createProviderGroup({
   glazewm: { type: 'glazewm' },
-  network: { type: 'network', refreshInterval: 30000 },
-  cpu: { type: 'cpu', refreshInterval: 10000 },
-  memory: { type: 'memory', refreshInterval: 10000 },
-  date: { type: 'date', formatting: 'EEE d MMM t' },
-  battery: { type: 'battery', refreshInterval: 30000 },
-  weather: { type: 'weather' },
+  date: { type: 'date', formatting: 'HH:mm · ccc dd LLL', refreshInterval: 1000 },
+  battery: { type: 'battery', refreshInterval: 10000 },
 });
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
   node.className = className;
   if (text != null) node.textContent = text;
-  return node;
-}
-function icon(name, className = '') {
-  const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  node.setAttribute('class', `icon ${className}`.trim());
-  node.setAttribute('viewBox', '0 0 24 24');
-  node.setAttribute('aria-hidden', 'true');
-  node.setAttribute('focusable', 'false');
-  const use = document.createElementNS(node.namespaceURI, 'use');
-  use.setAttribute('href', `./resources/icons.svg#${name}`);
-  node.append(use);
   return node;
 }
 function button(className, content, command, title) {
@@ -34,85 +19,109 @@ function button(className, content, command, title) {
   if (title) { node.title = title; node.setAttribute('aria-label', title); }
   return node;
 }
+// The overlay never intercepts clicks, including while its panel is hidden.
+void currentWidget().window.tauri.setIgnoreCursorEvents(true).catch(console.error);
 const app = element('div', 'app');
-const left = element('div', 'left');
-const center = element('div', 'center');
-const right = element('div', 'right');
-const workspaces = element('div', 'workspaces');
-const controls = element('div', 'controls');
-controls.style.display = 'contents';
-left.append(icon('layout-grid', 'logo'), workspaces);
-right.append(controls);
-const fields = {};
-for (const name of ['network', 'memory', 'cpu', 'battery', 'weather']) {
-  fields[name] = element('div', name);
-  fields[name].hidden = true;
-  right.append(fields[name]);
+const workspaces = element('nav', 'workspaces');
+workspaces.setAttribute('aria-label', 'Workspaces');
+const clock = element('time', 'dock-panel clock');
+clock.setAttribute('aria-label', 'Local time and date');
+const battery = element('div', 'dock-panel battery-status');
+battery.hidden = true;
+const svgNamespace = 'http://www.w3.org/2000/svg';
+const batteryIcon = document.createElementNS(svgNamespace, 'svg');
+batteryIcon.setAttribute('class', 'icon');
+batteryIcon.setAttribute('viewBox', '0 0 24 24');
+batteryIcon.setAttribute('aria-hidden', 'true');
+const batterySymbol = document.createElementNS(svgNamespace, 'use');
+const batteryFill = document.createElementNS(svgNamespace, 'rect');
+for (const [name, value] of Object.entries({ x: 5, y: 9, height: 6, rx: 0.75, fill: 'currentColor', stroke: 'none' })) {
+  batteryFill.setAttribute(name, String(value));
 }
-app.append(left, center, right);
+batteryIcon.append(batterySymbol, batteryFill);
+const batteryLabel = element('span', 'battery-label');
+battery.append(batteryIcon, batteryLabel);
+app.append(battery, workspaces, clock);
 document.getElementById('root').replaceChildren(app);
 
-// Only update changed providers, preserving buttons and keyboard focus on metric ticks.
+// Preserve buttons and keyboard focus when workspace data has not changed.
 let workspaceKey = '';
-let controlKey = '';
-const previous = {};
-function metric(name, data, glyph, text, className = '') {
-  const key = JSON.stringify([data != null, glyph, text, className]);
-  if (previous[name] === key) return;
-  previous[name] = key;
-  fields[name].style.display = data == null ? 'none' : 'flex';
-  fields[name].hidden = data == null;
-  fields[name].replaceChildren(icon(glyph), element('span', className, text));
+let displayedWorkspace;
+let hideTimer;
+let latestBattery;
+let batteryRequestPending = false;
+function setVisible(visible) {
+  if (visible && !app.classList.contains('visible')) {
+    batteryRequestPending = !latestBattery;
+    if (latestBattery) renderBattery(latestBattery);
+  }
+  if (!visible) batteryRequestPending = false;
+  app.classList.toggle('visible', visible);
+  app.setAttribute('aria-hidden', String(!visible));
 }
-const weatherIcons = {
-  clear_day: 'sun', clear_night: 'moon', cloudy_day: 'cloud-sun', cloudy_night: 'cloud-moon',
-  light_rain_day: 'cloud-drizzle', light_rain_night: 'cloud-drizzle',
-  heavy_rain_day: 'cloud-rain', heavy_rain_night: 'cloud-rain',
-  snow_day: 'cloud-snow', snow_night: 'cloud-snow', thunder_day: 'cloud-lightning', thunder_night: 'cloud-lightning',
-};
+function showBriefly() {
+  clearTimeout(hideTimer);
+  setVisible(true);
+  hideTimer = setTimeout(() => setVisible(false), 1200);
+}
+app.setAttribute('aria-hidden', 'true');
+
+// Keep the native subscription stable across simultaneous reveals on all monitors.
+// Cache readings silently; only opening the overlay changes the battery display.
+providers.raw.battery.onOutput(power => {
+  if (!Number.isFinite(power?.chargePercent)) return;
+  latestBattery = { ...power };
+  if (batteryRequestPending && app.classList.contains('visible')) {
+    batteryRequestPending = false;
+    renderBattery(latestBattery);
+  }
+});
+// Retain the last valid reading across transient provider errors.
+function renderBattery(power) {
+  battery.hidden = !Number.isFinite(power?.chargePercent);
+  if (!battery.hidden) {
+    const percent = Math.round(Math.max(0, Math.min(100, power.chargePercent)));
+    const state = power.isCharging ? 'Charging' : power.state === 'full' ? 'Full' : 'Battery';
+    batteryLabel.textContent = `${percent}%`;
+    battery.setAttribute('aria-label', `${state}: ${percent}%`);
+    battery.title = `${state}: ${percent}%`;
+    batterySymbol.setAttribute('href', `./resources/icons.svg#${power.isCharging ? 'battery-charging' : 'battery'}`);
+    batteryFill.setAttribute('width', String(power.isCharging ? 0 : 10 * percent / 100));
+    battery.classList.toggle('low', percent <= 20 && !power.isCharging);
+    battery.classList.toggle('charging', power.isCharging);
+  }
+}
+
 function render() {
   const output = providers.outputMap;
+  const formatted = output.date?.formatted ?? '--:--';
+  if (clock.dataset.formatted !== formatted) {
+    clock.dataset.formatted = formatted;
+    const [time, ...date] = formatted.split(' · ');
+    clock.replaceChildren(element('span', 'clock-time', time));
+    if (date.length) clock.append(element('span', 'clock-date', ` · ${date.join(' · ')}`));
+  }
+  if (output.date?.iso) clock.setAttribute('datetime', output.date.iso);
   const wm = output.glazewm;
-  const nextWorkspaces = JSON.stringify(wm?.currentWorkspaces);
+  const displayed = wm?.currentWorkspaces?.find(workspace => workspace.isDisplayed)?.name;
+  if (displayed != null) {
+    if (displayedWorkspace != null && displayedWorkspace !== displayed) showBriefly();
+    displayedWorkspace = displayed;
+  }
+  const visibleWorkspaces = (wm?.currentWorkspaces ?? []).map(({ name, displayName, hasFocus, isDisplayed }) => ({ name, displayName, hasFocus, isDisplayed }));
+  const nextWorkspaces = JSON.stringify(visibleWorkspaces);
   if (workspaceKey !== nextWorkspaces) {
     workspaceKey = nextWorkspaces;
-    workspaces.replaceChildren(...(wm?.currentWorkspaces ?? []).map(workspace => button(
+    workspaces.replaceChildren(...visibleWorkspaces.map(workspace => button(
       `workspace${workspace.hasFocus ? ' focused' : ''}${workspace.isDisplayed ? ' displayed' : ''}`,
-      String(workspace.displayName ?? workspace.name), `focus --workspace ${workspace.name}`,
+      String(workspace.name), `focus --workspace ${workspace.name}`,
+      `Workspace ${workspace.displayName ?? workspace.name}`,
     )));
   }
-  const nextControls = JSON.stringify(wm && [wm.isPaused, wm.bindingModes, wm.tilingDirection]);
-  if (controlKey !== nextControls) {
-    controlKey = nextControls;
-    const nodes = [];
-    if (wm) {
-      if (wm.isPaused) nodes.push(button('paused-button', 'PAUSED', 'wm-toggle-pause'));
-      for (const mode of wm.bindingModes) nodes.push(button('binding-mode', String(mode.displayName ?? mode.name), `wm-disable-binding-mode --name ${mode.name}`));
-      nodes.push(button('tiling-direction', icon(wm.tilingDirection === 'horizontal' ? 'columns-2' : 'rows-2'), 'toggle-tiling-direction', 'Toggle tiling direction'));
-    }
-    controls.replaceChildren(...nodes);
-  }
-  const date = output.date?.formatted ?? '';
-  if (center.textContent !== date) center.textContent = date;
-  const network = output.network;
-  const strength = network?.defaultGateway?.signalStrength ?? 0;
-  const networkIcon = { ethernet: 'ethernet-port', proprietary_virtual: 'shield-check',
-    wifi: strength >= 80 ? 'wifi' : strength >= 65 ? 'wifi-high' : strength >= 40 ? 'wifi-low' : 'wifi-zero' }[network?.defaultInterface?.type] ?? 'wifi-off';
-  metric('network', network, networkIcon, network?.defaultGateway?.ssid ?? '');
-  metric('memory', output.memory, 'memory-stick', `${Math.round(output.memory?.usage ?? 0)}%`);
-  metric('cpu', output.cpu, 'cpu', `${Math.round(output.cpu?.usage ?? 0)}%`, output.cpu?.usage > 85 ? 'high-usage' : '');
-  const battery = output.battery;
-  const charge = Math.max(0, Math.min(100, battery?.chargePercent ?? 0));
-  metric('battery', battery, battery?.isCharging ? 'battery-charging' : 'battery', `${Math.round(charge)}%`, charge <= 20 ? 'low-battery' : '');
-  if (battery && !battery.isCharging) {
-    const svg = fields.battery.firstChild;
-    let fill = svg.querySelector('rect');
-    if (!fill) { fill = document.createElementNS(svg.namespaceURI, 'rect'); svg.append(fill); }
-    for (const [key, value] of Object.entries({ x: 5, y: 9, width: charge / 10, height: 6, rx: 0.75, fill: 'currentColor', stroke: 'none' })) fill.setAttribute(key, value);
-  }
-  metric('weather', output.weather, weatherIcons[output.weather?.status] ?? 'cloud', `${Math.round(output.weather?.celsiusTemp ?? 0)}°C`);
+
 }
 render();
 providers.onOutput(render);
+providers.onError(render);
 
-window.addEventListener('beforeunload', () => { void providers.stopAll(); }, { once: true });
+window.addEventListener('beforeunload', () => { clearTimeout(hideTimer); void providers.stopAll(); }, { once: true });
