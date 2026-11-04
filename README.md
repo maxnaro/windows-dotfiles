@@ -564,3 +564,23 @@ with a one-second process-liveness check and bounded reconnect backoff.
 Run `windows\tests\Test-TitleBars.ps1` in Windows PowerShell for native fixture
 checks of restoration, geometry, and window ownership.
 
+## Windows Terminal Focus mode
+
+`setup.ps1` sets Windows Terminal's top-level `launchMode` to `focus`, hiding the
+window buttons, title bar, and tabs in new windows. This applies whether or not
+GlazeWM is running. Other Terminal settings, profiles, and keybindings are preserved.
+
+To apply just this preference:
+
+```powershell
+.\windows\Configure-Terminal.ps1
+```
+
+The script finds existing stable Store or unpackaged Terminal settings. If neither
+exists, open Terminal once and rerun it. Use `-SettingsPath 'C:\path\settings.json'`
+for another installation. It uses the shared JSON settings helpers; the input must
+be valid JSON. Changed settings are backed up under `%USERPROFILE%\.glzr\backups`;
+repeating the script when Focus mode is already set makes no changes.
+
+For an existing window, use `Ctrl+Shift+P` → **Toggle focus mode**. Repeat to show
+its title bar and tabs again.

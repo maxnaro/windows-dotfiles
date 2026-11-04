@@ -40,6 +40,7 @@ foreach ($app in @('glazewm', 'zebar')) {
 }
 
 & (Join-Path $PSScriptRoot 'windows\Configure-Desktop.ps1')
+& (Join-Path $PSScriptRoot 'windows\Configure-Terminal.ps1')
 $wallpaperArguments = @{}
 if ($PSBoundParameters.ContainsKey('WallpaperMode')) { $wallpaperArguments.WallpaperMode = $WallpaperMode }
 & (Join-Path $PSScriptRoot 'windows\Apply.ps1') -MonitorCount $MonitorCount -NoRestart:$NoRestart -WithoutZebar:$WithoutZebar @wallpaperArguments
