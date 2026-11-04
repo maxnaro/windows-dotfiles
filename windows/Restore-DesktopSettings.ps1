@@ -18,6 +18,8 @@ if ($hasDesktopState -or (Test-Path -LiteralPath $wallpaperSnapshot)) {
     if (-not $NoRestart) {
         $installed = Join-Path $env:USERPROFILE '.glzr\glazewm'
         Set-DesktopSession $installed '' $false
+        $titleBars = Join-Path $installed 'Watch-TitleBars.ps1'
+        if (Test-Path $titleBars) { & $titleBars -Stop -WaitForStop }
         Stop-DesktopWallpaper -Wait
         & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Stop -WaitForStop
         Stop-DesktopApp 'zebar'

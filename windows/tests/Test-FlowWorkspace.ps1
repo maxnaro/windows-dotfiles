@@ -201,13 +201,20 @@ try {
     Assert-True (-not $config.Contains("- 'shell-exec zebar'")) 'WithoutZebar still starts Zebar.'
     Assert-True ($config.Contains('Watch-FlowWorkspace.ps1') -and $config.Contains('-Restart') -and $config.Contains('-Stop')) 'Helper lifecycle commands were lost.'
     Assert-True ($config.Contains("name: '6', bind_to_monitor: 1")) 'Monitor assignments changed.'
-    foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs')) {
+    foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Watch-TitleBars.ps1', 'TitleBars.cs')) {
         Assert-True ([IO.File]::ReadAllText((Join-Path $installed $name)) -eq [IO.File]::ReadAllText((Join-Path $windows $name))) "Helper installation differs: $name"
     }
+    $desktopPath = Join-Path $installed 'desktop-startup.json'
+    $desktop = Get-Content $desktopPath -Raw | ConvertFrom-Json
+    Assert-True $desktop.TitleBarsEnabled 'Fresh installation did not enable title bars.'
+    Assert-True (-not (Test-Path (Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor\vendor\node_modules'))) 'Widget development dependencies were installed.'
+    $desktop.TitleBarsEnabled = $false
+    [IO.File]::WriteAllText($desktopPath, ($desktop | ConvertTo-Json))
     [IO.File]::WriteAllText((Join-Path $installed 'FlowWorkspace.cs'), '// previous version')
     & (Join-Path $windows 'Apply.ps1') -MonitorCount 1 -NoRestart -WallpaperMode None
     $config = Get-Content -LiteralPath (Join-Path $installed 'config.yaml') -Raw
     Assert-True ((Get-Content -LiteralPath (Join-Path $env:USERPROFILE '.glzr\glazewm\desktop-startup.json') -Raw | ConvertFrom-Json).ZebarEnabled) 'Normal installation omitted Zebar.'
+    Assert-True (-not (Get-Content $desktopPath -Raw | ConvertFrom-Json).TitleBarsEnabled) 'Reinstall lost the title-bar opt-out.'
     Assert-True (-not $config.Contains('bind_to_monitor: 1')) 'Single-monitor installation retained a second monitor.'
     $backups = @(Get-ChildItem (Join-Path $env:USERPROFILE '.glzr\backups') -Directory | Sort-Object Name)
     Assert-True ([IO.File]::ReadAllText((Join-Path $backups[-1].FullName 'FlowWorkspace.cs')) -eq '// previous version') 'Previous helper source was not backed up.'

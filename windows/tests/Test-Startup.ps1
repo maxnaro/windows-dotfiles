@@ -167,6 +167,7 @@ public class DotfilesStartupFakeCli {
         Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02) -eq 0) 'Staged startup failed.'
         $events = $script:stagedEvents -join ','
         Assert-True ($events.StartsWith('GlazeWM,') -and $events.EndsWith('Flow,Zebar,Wallpaper.ps1')) "Companion order changed: $events"
+        Assert-True ($script:stagedEvents.IndexOf('Watch-TitleBars.ps1') -lt $script:stagedEvents.IndexOf('Watch-FlowWorkspace.ps1')) 'Title-bar helper was not dispatched before staged companions.'
         Assert-True ($script:stagedEvents.IndexOf('Watch-FlowWorkspace.ps1') -lt $script:stagedEvents.IndexOf('Flow')) 'Flow started before its workspace helper.'
         $script:stagedEvents.Clear()
         Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02 -CompanionsOnly) -eq 0) 'Manual companion startup failed.'

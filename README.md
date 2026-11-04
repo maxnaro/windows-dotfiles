@@ -539,3 +539,28 @@ an unexpected exit, with delays increasing from 1 to 30 seconds.
 
 The GlazeWM dock also appears while either Alt key is held, with all sections visible.
 It hides 1.2 seconds after release. Workspaces stay at monitor center; side sections fit their content.
+
+## Title bars while GlazeWM is active
+
+Setup enables reversible hiding of standard Windows title bars on managed windows,
+including floating windows. Title bars return while GlazeWM is paused with
+`Alt+Shift+P`, and when it exits or crashes. App-drawn controls and tab strips
+are unaffected. GlazeWM's built-in `hide_title_bar` switches stay disabled because
+`Watch-TitleBars.ps1` records and restores the original native frame flag instead.
+Resize borders, focus, and stacking order are preserved; app compatibility varies.
+
+Set `TitleBarsEnabled` to `false` in
+`%USERPROFILE%\.glzr\glazewm\desktop-startup.json`, then press `Alt+Shift+R`
+to disable the feature. Set it to `true` and reload to enable it. Subsequent setup
+runs preserve this choice; configurations missing the property are treated as off.
+`Alt+F4` or `Alt+Q` still closes a window, and `Alt+Shift+Space` toggles floating.
+
+For recovery after an interrupted helper, run the installed
+`Watch-TitleBars.ps1 -Stop -WaitForStop`. Its session journal restores only windows
+carrying the matching ownership marker. Access-denied windows are skipped and
+errors appear in `title-bars-<session>.json.log`. The helper uses GlazeWM IPC events,
+with a one-second process-liveness check and bounded reconnect backoff.
+
+Run `windows\tests\Test-TitleBars.ps1` in Windows PowerShell for native fixture
+checks of restoration, geometry, and window ownership.
+

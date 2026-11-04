@@ -12,6 +12,7 @@ general:
 
   # Commands to run after the WM config is reloaded.
   config_reload_commands:
+    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-TitleBars.ps1" -Restart'
     - 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1" -Restart'
 
   # Whether to automatically focus windows underneath the cursor.
@@ -69,6 +70,7 @@ window_effects:
 
     # Remove the title bar from the window's frame. Note that this can
     # cause rendering issues for some applications.
+    # Watch-TitleBars.ps1 owns reversible title-bar changes.
     hide_title_bar:
       enabled: false
 
@@ -91,6 +93,7 @@ window_effects:
     border:
       enabled: true
       color: '#644c2c'
+    # Watch-TitleBars.ps1 owns reversible title-bar changes.
     hide_title_bar:
       enabled: false
     corner_style:

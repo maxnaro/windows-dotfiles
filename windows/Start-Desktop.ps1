@@ -227,6 +227,7 @@ function Invoke-DesktopStartup {
         $desktopConfig = Join-Path $Directory 'desktop-startup.json'
         if (Test-Path -LiteralPath $desktopConfig) {
             $desktop = Get-Content -LiteralPath $desktopConfig -Raw | ConvertFrom-Json
+            $stages.Add([pscustomobject]@{ Name = 'Title bars'; At = 0; Done = $false; Script = 'Watch-TitleBars.ps1'; Arguments = '' })
             $stages.Add([pscustomobject]@{ Name = 'Workspace helper'; At = 5 * $StageScale; Done = $false; Script = 'Watch-FlowWorkspace.ps1'; Arguments = '' })
             if ($desktop.ZebarEnabled) {
                 $scoop = Split-Path -Parent (Split-Path -Parent $glaze.Root)
@@ -315,6 +316,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         Set-DesktopSession $PSScriptRoot '' $false
         try { $stop = [Threading.EventWaitHandle]::OpenExisting('Local\DotfilesDesktopStartupStop'); try { $null = $stop.Set() } finally { $stop.Dispose() } }
         catch [Threading.WaitHandleCannotBeOpenedException] { }
+        & (Join-Path $PSScriptRoot 'Watch-TitleBars.ps1') -Stop -WaitForStop
         & (Join-Path $PSScriptRoot 'Wallpaper.ps1') -Stop
         & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Stop
         $session = (Get-Process -Id $PID).SessionId

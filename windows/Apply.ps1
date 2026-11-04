@@ -17,6 +17,18 @@ $configPath = Join-Path $env:USERPROFILE '.glzr\glazewm\config.yaml'
 $settingsPath = Join-Path $env:USERPROFILE '.glzr\zebar\settings.json'
 $packPath = Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor'
 
+# Widget runtime assets are bundled; development dependencies are not installed.
+function Copy-WidgetPack {
+    param([string]$Source, [string]$Destination)
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($item in Get-ChildItem -LiteralPath $Source -Force) {
+        if ($item.Name -eq 'node_modules') { continue }
+        $target = Join-Path $Destination $item.Name
+        if ($item.PSIsContainer) { Copy-WidgetPack $item.FullName $target }
+        else { Copy-Item -LiteralPath $item.FullName -Destination $target -Force }
+    }
+}
+
 if ($MonitorCount -eq 0) {
     Add-Type -AssemblyName System.Windows.Forms
     $MonitorCount = [System.Windows.Forms.Screen]::AllScreens.Count
@@ -53,13 +65,15 @@ $hadConfig = Test-Path -LiteralPath $configPath -PathType Leaf
 $hadSettings = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $hadPack = Test-Path -LiteralPath $packPath -PathType Container
 $helperFiles = @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
-    'DesktopRuntime.cs', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
+    'DesktopRuntime.cs', 'TitleBars.cs', 'Watch-TitleBars.ps1', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
 $script:settingsBackup = $backupPath
 $script:backupEntries = @()
 foreach ($path in @($configPath, $settingsPath) + @($helperFiles | ForEach-Object { Join-Path (Split-Path -Parent $configPath) $_ })) { Save-SettingFile $path }
 # Build before changing the installed configuration. Cached assemblies are source-addressed.
 Initialize-DesktopRuntime -Directory (Split-Path -Parent $configPath) -Build
 
+$existingTitleBars = Join-Path (Split-Path -Parent $configPath) 'Watch-TitleBars.ps1'
+if (-not $NoRestart -and (Test-Path $existingTitleBars)) { & $existingTitleBars -Stop -WaitForStop }
 $hadHelper = @{}
 foreach ($name in $helperFiles) {
     $path = Join-Path (Split-Path -Parent $configPath) $name
@@ -73,7 +87,7 @@ if ($hadSettings) {
     Copy-Item -LiteralPath $settingsPath -Destination (Join-Path $backupPath 'settings.json')
 }
 if ($hadPack) {
-    Copy-Item -LiteralPath $packPath -Destination (Join-Path $backupPath 'multimonitor') -Recurse
+    Copy-WidgetPack $packPath (Join-Path $backupPath 'multimonitor')
 }
 @{ hadConfig = $hadConfig; hadSettings = $hadSettings; hadPack = $hadPack; hadHelper = $hadHelper } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $backupPath 'previous-state.json') -Encoding UTF8
@@ -85,7 +99,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path (Split-Path -Parent $configPath) $name) -Force
     }
     if ($hadPack) { Remove-Item -LiteralPath $packPath -Recurse -Force }
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'multimonitor') -Destination $packPath -Recurse
+    Copy-WidgetPack (Join-Path $PSScriptRoot 'multimonitor') $packPath
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Destination $settingsPath
     $installed = Split-Path -Parent $configPath
     # Build the installed Flow cache too; the source-side cache is used by targeted updates/tests.
@@ -94,6 +108,14 @@ try {
     $image = Join-Path $installed 'wallpaper.jpg'
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'multimonitor\resources\coniston.jpg') -Destination $image -Force
     $desktop = Set-DesktopWallpaperConfiguration -Mode $WallpaperMode -ImagePath $image -Directory $installed -BackupDirectory $backupPath
+    & (Join-Path $installed 'Watch-TitleBars.ps1') -Build
+    $titleBarsEnabled = $true
+    $previousDesktop = Join-Path $backupPath 'desktop-startup.json'
+    if (Test-Path $previousDesktop) {
+        $previous = Get-Content $previousDesktop -Raw | ConvertFrom-Json
+        if ($previous.PSObject.Properties['TitleBarsEnabled']) { $titleBarsEnabled = [bool]$previous.TitleBarsEnabled }
+    }
+    $desktop | Add-Member NoteProperty TitleBarsEnabled $titleBarsEnabled
     $desktop | Add-Member NoteProperty ZebarEnabled (-not $WithoutZebar)
     [IO.File]::WriteAllText((Join-Path $installed 'desktop-startup.json'), ($desktop | ConvertTo-Json -Depth 8))
     $utf8 = New-Object System.Text.UTF8Encoding($false)
