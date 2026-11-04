@@ -52,6 +52,29 @@ layoutObserver.observe(app);
 layoutObserver.observe(workspaces);
 
 // Preserve buttons and keyboard focus when workspace data has not changed.
+// Force a native z-order change: reapplying an already cached topmost value
+// can be a no-op even when another window has displaced this overlay.
+let raising = false;
+let raisePending = false;
+async function raiseOverlay() {
+  if (unloading) return;
+  raisePending = true;
+  if (raising) return;
+  raising = true;
+  try {
+    while (raisePending && !unloading) {
+      raisePending = false;
+      try {
+        await currentWidget().window.setZOrder('normal');
+      } catch (error) { console.error(error); }
+      // Complete restoration even if unloading started during the first call.
+      try {
+        await currentWidget().window.setZOrder('top_most');
+      } catch (error) { console.error(error); }
+    }
+  } finally { raising = false; }
+}
+let focusedContainer;
 let workspaceKey = '';
 let displayedWorkspace;
 let hideTimer;
@@ -59,6 +82,7 @@ let altHeld = false;
 let latestBattery;
 let batteryRequestPending = false;
 function setVisible(visible) {
+  if (visible) void raiseOverlay();
   if (visible && !app.classList.contains('visible')) {
     batteryRequestPending = !latestBattery;
     if (latestBattery) renderBattery(latestBattery);
@@ -147,6 +171,11 @@ function render() {
   }
   if (output.date?.iso) clock.setAttribute('datetime', output.date.iso);
   const wm = output.glazewm;
+  const focused = wm?.focusedContainer?.id;
+  if (focused !== focusedContainer) {
+    focusedContainer = focused;
+    if (app.classList.contains('visible')) void raiseOverlay();
+  }
   const displayed = wm?.currentWorkspaces?.find(workspace => workspace.isDisplayed)?.name;
   if (displayed != null) {
     if (displayedWorkspace != null && displayedWorkspace !== displayed) showBriefly();
@@ -168,4 +197,4 @@ render();
 providers.onOutput(render);
 providers.onError(render);
 
-window.addEventListener('beforeunload', () => { unloading = true; clearTimeout(retryTimer); clearTimeout(hideTimer); altWatcher?.kill(); layoutObserver.disconnect(); void providers.stopAll(); }, { once: true });
+window.addEventListener('beforeunload', () => { unloading = true; raisePending = false; clearTimeout(retryTimer); clearTimeout(hideTimer); altWatcher?.kill(); layoutObserver.disconnect(); void providers.stopAll(); }, { once: true });

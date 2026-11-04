@@ -22,6 +22,8 @@ const group = {
 };
 const timers = new Map();
 let timerId = 0;
+const zOrders = [];
+let rejectRaise = false;
 let clickThrough = false;
 let altOutput;
 let altExit;
@@ -30,7 +32,7 @@ const context = vm.createContext({ document, window, console, ResizeObserver: cl
   spawnFactory: async () => ({ onStderr: () => {}, onStdout: callback => { altOutput = callback; }, onExit: callback => { altExit = callback; }, kill: () => { killed = true; } }),
   setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
   clearTimeout: id => timers.delete(id),
-  widgetFactory: () => ({ htmlPath: 'C:\\test\\zpack.json', window: { tauri: { setIgnoreCursorEvents: async value => { clickThrough = value; } } } }),
+  widgetFactory: () => ({ htmlPath: 'C:\\test\\zpack.json', window: { setZOrder: async value => { zOrders.push(value); if (rejectRaise) throw new Error('fixture raise failure'); }, tauri: { setIgnoreCursorEvents: async value => { clickThrough = value; } } } }),
   providerFactory: value => { config = value; return group; },
 });
 const bar = readFileSync(new URL('../multimonitor/bar.js', import.meta.url), 'utf8');
@@ -129,6 +131,34 @@ altOutput('up');
 assert.equal(app.classList.contains('visible'), true);
 { const callback = timers.get(timerId); timers.delete(timerId); callback(); }
 assert.equal(app.classList.contains('visible'), false);
+await new Promise(resolve => setImmediate(resolve));
+assert.ok(zOrders.length > 0);
+assert.equal(zOrders.at(-1), 'top_most');
+for (let index = 0; index < zOrders.length; index += 2) {
+  assert.deepEqual(zOrders.slice(index, index + 2), ['normal', 'top_most']);
+}
+const hiddenCalls = zOrders.length;
+group.outputMap.glazewm.focusedContainer = { id: 'hidden-focus' };
+update();
+assert.equal(zOrders.length, hiddenCalls);
+altOutput('down');
+await new Promise(resolve => setImmediate(resolve));
+const revealedCalls = zOrders.length;
+update();
+assert.equal(zOrders.length, revealedCalls, 'Provider refresh must not raise again');
+group.outputMap.glazewm.focusedContainer = { id: 'visible-focus' };
+update();
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(zOrders.length, revealedCalls + 2);
+rejectRaise = true;
+altOutput('up');
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(zOrders.at(-1), 'top_most', 'Restoration is attempted after failure');
+rejectRaise = false;
+altOutput('down');
+altOutput('up');
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(zOrders.at(-1), 'top_most', 'Rapid requests recover after failure');
 window.dispatchEvent(new window.Event('beforeunload'));
 assert.equal(killed, true);
 assert.equal(stopped, true);
