@@ -29,6 +29,15 @@ function Copy-WidgetPack {
     }
 }
 
+function Clear-WidgetPack {
+    param([string]$Directory)
+    # Zebar can hold this as its native working directory. Keep the root alive
+    # while replacing assets, including during rollback after a failed update.
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force) {
+        Remove-Item -LiteralPath $item.FullName -Recurse -Force
+    }
+}
+
 if ($MonitorCount -eq 0) {
     Add-Type -AssemblyName System.Windows.Forms
     $MonitorCount = [System.Windows.Forms.Screen]::AllScreens.Count
@@ -65,7 +74,7 @@ $hadConfig = Test-Path -LiteralPath $configPath -PathType Leaf
 $hadSettings = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $hadPack = Test-Path -LiteralPath $packPath -PathType Container
 $helperFiles = @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
-    'DesktopRuntime.cs', 'TitleBars.cs', 'Watch-TitleBars.ps1', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
+    'DesktopRuntime.cs', 'Start-DesktopLauncher.ps1', 'Start-GlazeWM.vbs', 'Get-DesktopWindow.ps1', 'TitleBars.cs', 'Watch-TitleBars.ps1', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
 $script:settingsBackup = $backupPath
 $script:backupEntries = @()
 foreach ($path in @($configPath, $settingsPath) + @($helperFiles | ForEach-Object { Join-Path (Split-Path -Parent $configPath) $_ })) { Save-SettingFile $path }
@@ -98,7 +107,7 @@ try {
     foreach ($name in @($helperFiles | Where-Object { $_ -notin @('desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json') })) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path (Split-Path -Parent $configPath) $name) -Force
     }
-    if ($hadPack) { Remove-Item -LiteralPath $packPath -Recurse -Force }
+    if ($hadPack) { Clear-WidgetPack $packPath }
     Copy-WidgetPack (Join-Path $PSScriptRoot 'multimonitor') $packPath
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Destination $settingsPath
     $installed = Split-Path -Parent $configPath
@@ -137,10 +146,11 @@ try {
         Remove-Item -LiteralPath $settingsPath -Force
     }
     if (Test-Path -LiteralPath $packPath) {
-        Remove-Item -LiteralPath $packPath -Recurse -Force
+        if ($hadPack) { Clear-WidgetPack $packPath }
+        else { Remove-Item -LiteralPath $packPath -Recurse -Force }
     }
     if ($hadPack) {
-        Copy-Item -LiteralPath (Join-Path $backupPath 'multimonitor') -Destination $packPath -Recurse
+        Copy-WidgetPack (Join-Path $backupPath 'multimonitor') $packPath
     }
     if (Test-Path -LiteralPath (Join-Path $backupPath 'wallpaper-state.json')) {
         try { Restore-NativeWallpaper (Get-Content -LiteralPath (Join-Path $backupPath 'wallpaper-state.json') -Raw) }

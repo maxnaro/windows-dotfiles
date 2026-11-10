@@ -14,8 +14,11 @@ dotfiles/
   windows/
     Apply.ps1           Back up and install the tracked Windows configuration
     Enable-Startup.ps1  Enable GlazeWM at sign-in for the current Windows user
-    Start-GlazeWM.cmd   Startup terminal entry point
+    Start-GlazeWM.cmd   Optional visible manual entry point
+    Start-GlazeWM.vbs   Minimized sign-in/manual launcher (Windows Script Host)
+    Start-DesktopLauncher.ps1  Wait for startup; dispatch console-free lifecycle helpers
     Start-Desktop.ps1   Desktop startup progress, readiness checks and logging
+    Get-DesktopWindow.ps1  Targeted unexpected-window ownership diagnostics
     config.yaml         GlazeWM configuration
     settings.json       Zebar startup configuration
     multimonitor/       Local copy of the Zebar starter widget pack
@@ -23,8 +26,20 @@ dotfiles/
 
 ## Windows setup
 
-Use a normal, non-admin PowerShell window. Scoop is the only bootstrap prerequisite.
-If needed, install it using its official instructions:
+Use a normal, non-admin **Windows PowerShell 5.1** window (`powershell.exe`),
+not PowerShell 7 (`pwsh.exe`). The desktop helpers target .NET Framework;
+PowerShell 7 cannot compile/load them by adding the missing DLL reference.
+From either shell, open Windows PowerShell explicitly:
+
+```powershell
+& "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile
+```
+
+The Windows desktop commands below assume that shell. Setup and the shared
+helper loader reject unsupported hosts before changing settings or loading caches;
+no Terminal profile or execution-policy changes are needed for this host selection.
+Scoop is the only bootstrap prerequisite. If needed, install it using its official
+instructions:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
@@ -75,11 +90,44 @@ are retained. If registration is denied, existing shortcuts and opt-in remain
 intact. A company restriction on task registration requires IT help.
 
 Startup logging is always enabled at `%USERPROFILE%\.glzr\glazewm\startup.log`.
-Startup runs invisibly through Windows Script Host. Timestamped stages, readiness
-results, and errors remain in the log. Readiness checks share a forty-five-second
-deadline. Success and failure both exit automatically; failures return a nonzero
-code to Task Scheduler without a dialog or keypress. Application processes remain
-running so late initialization can finish.
+Startup uses the installed Windows Script Host and PowerShell, not a generated
+launcher EXE. It requests a minimized, non-activating terminal titled
+`Dotfiles desktop startup`. That terminal stays attached to the orchestrator until
+all configured readiness checks succeed, then closes automatically. A timeout or
+error is logged and also ends startup without waiting for a keypress. Resident
+helpers and diagnostics use `CREATE_NO_WINDOW`, so they do not keep the startup
+terminal alive or leave their own blank consoles.
+
+Windows Terminal can interpret window-state and close-on-exit settings differently
+from the traditional console host. Validate minimization, focus, and closure on a
+fresh sign-in with your actual default terminal. Setup does not change Terminal
+profiles or weaken application-control restrictions. If IT blocks Windows Script
+Host/PowerShell as well, stop and ask IT rather than bypassing the restriction.
+
+To start manually with the same minimized/wait-and-close behavior:
+
+```powershell
+& "$env:WINDIR\System32\wscript.exe" //B //Nologo "$env:USERPROFILE\.glzr\glazewm\Start-GlazeWM.vbs"
+```
+
+The CMD entry point is deliberately visible for troubleshooting; invoking it from
+an existing terminal does not close that terminal. Lifecycle/reload dispatch is
+short-lived and launches console-free children. Its dispatch status/errors go to
+`desktop-launcher.log`; each invocation's child output goes to a unique
+`<Action>-<id>-launcher.log` beside it. The dispatch entry records the child's PID
+and exact log path. Separate files let repeated restarts run while the previous
+resident still holds its log open. Dispatch success alone is not helper readiness.
+
+Timestamped stages, launch PIDs/start times, readiness results, and errors remain
+in the log. Helper dispatch is not reported as readiness: resident helpers must
+signal ready, and early exits or missing signals make startup incomplete.
+Readiness checks share a forty-five-second deadline. Monitor probes run outside
+the dispatch loop and are aborted at their individual deadlines; filesystem and
+process-launch operations can still exceed nominal timings under system load.
+Success and failure both exit automatically; failures return a nonzero code to
+Task Scheduler without a dialog or keypress. Application processes remain running
+so late initialization can finish. These checks do not prove every UI has painted:
+Zebar readiness currently confirms its process, not the first rendered widget.
 To disable startup, open Task Scheduler and disable the `GlazeWM` task.
 Rerunning setup or the startup script enables it again.
 
@@ -248,6 +296,23 @@ For a short capture in the current session:
 .\windows\Measure-GlazeWMStartup.ps1 -DurationSeconds 30 -IntervalSeconds 5 -Label manual
 ```
 
+To identify an unexpected blank window without closing or moving it, point the
+mouse at it and run the installed script (or pass an explicit native HWND):
+
+```powershell
+& "$env:USERPROFILE\.glzr\glazewm\Get-DesktopWindow.ps1"
+# & "$env:USERPROFILE\.glzr\glazewm\Get-DesktopWindow.ps1" -Handle 123456
+```
+
+It prints JSON containing the root window's owner process/class, bounds,
+visibility, topmost/cloaked state, and whether GlazeWM manages it. It does not
+change focus/layout or record window titles or command lines. A failed management
+query is reported as unknown, not unmanaged. Save this output before trying
+Alt+Q: an ignored overlay need not be GlazeWM's focused managed window.
+
+Captures record `ProbeCompletedAt` and `ProbeCompletedElapsedSeconds` separately
+from sample start, so a slow probe is not mistaken for an earlier readiness time.
+
 A successful monitor query measures command responsiveness; it does not prove
 that keyboard focus changes or window movement feel responsive. Compare those
 interactions during the slow period as well as after stabilisation. Current-session
@@ -393,9 +458,11 @@ startup managed by it.
 Validate the configuration helpers and diagnostic timeout handling with:
 
 ```powershell
+.\windows\tests\Test-PowerShellHost.ps1
 .\windows\tests\Test-DesktopSettings.ps1
 .\windows\tests\Test-Startup.ps1
 .\windows\tests\Test-StartupPerformance.ps1
+.\windows\tests\Test-DesktopLauncher.ps1
 .\windows\tests\Test-FlowWorkspace.ps1
 .\windows\tests\Test-StandaloneStartup.ps1
 ```
@@ -408,16 +475,26 @@ pinned bundle and rebuild instructions are in `windows/multimonitor/vendor`.
 From that directory, `npm ci --ignore-scripts` then `npm test` runs its DOM tests.
 
 The startup suite uses disposable files, a fake CLI, mocked task registration,
-and a short hidden collector. It checks launch ordering, duplicate prevention,
-errors and timeouts, Flow bootstrap handoff and current-process logs, shortcut
-migration/restore, and diagnostics continuing after the startup process exits.
+and a short console-free collector. `Test-DesktopLauncher.ps1` exercises the real
+WSH/PowerShell entry point with disposable scripts: startup must remain attached
+until initialization, then close with the original status. It also tests an
+orchestrator readiness timeout, literal paths containing shell metacharacters,
+no-console resident children surviving dispatcher exit, repeated restart actions
+while the previous resident holds its log open, action forwarding and failure logs. Visible traditional-console fixtures must be minimized; an outer
+Windows Terminal window still needs interactive validation. No generated launcher
+EXE or GUI-host skip is required. The startup suite checks launch ordering,
+duplicate prevention, errors and timeouts, Flow bootstrap handoff and current-process
+logs, shortcut migration/restore, and diagnostics continuing after startup exits.
 It does not register real tasks or restart installed apps. After repairing live
-startup, validate a fresh sign-in: tiling should respond promptly, no startup terminal
-should appear, and `Alt+Space` should open Flow for app search.
+startup, validate a fresh sign-in: tiling should respond promptly, the startup
+terminal should stay minimized without stealing focus and close after readiness,
+and `Alt+Space` should open Flow for app search.
 
 The Flow workspace suite tests capture, new/reused windows, focus restoration,
-cancellation, timeout expiry, and installation with and without Zebar. With GlazeWM
-running and no workspace helper already active, add `-Live` to check IPC and the
+cancellation, timeout expiry, and installation with and without Zebar. A disposable
+process holds the widget directory open while successful installation and an
+injected-failure rollback verify that the installer preserves the directory root.
+With GlazeWM running and no workspace helper already active, add `-Live` to check IPC and the
 helper's duplicate prevention, reload, and shutdown. After applying live settings,
 launch an app through Flow from empty and occupied workspaces on both monitors,
 then repeat with an existing browser/terminal window and with Escape cancellation.

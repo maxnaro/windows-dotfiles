@@ -7,6 +7,7 @@ using System.Net.WebSockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -44,29 +45,74 @@ namespace Dotfiles.Desktop {
     public sealed class MonitorProbe : IDisposable {
         readonly Uri address;
         ClientWebSocket socket;
+        readonly object gate = new object();
+        Task<ProbeResult> pending;
+        Stopwatch pendingWatch;
+        int pendingTimeout, pendingConnected;
+        double pendingConnectionMilliseconds, pendingCompletedMilliseconds;
+        bool delivered, disposed;
         public MonitorProbe() : this("ws://127.0.0.1:6123") { }
         public MonitorProbe(string endpoint) { address = new Uri(endpoint); }
+        public bool BeginQuery(int timeoutMilliseconds) {
+            if (disposed) throw new ObjectDisposedException("MonitorProbe");
+            if (pending != null && !pending.IsCompleted) return false;
+            pendingTimeout = Math.Max(1, timeoutMilliseconds);
+            pendingWatch = Stopwatch.StartNew(); delivered = false;
+            pendingConnected = 0; pendingConnectionMilliseconds = 0;
+            int budget = pendingTimeout;
+            pending = Task.Run(() => {
+                try { return QueryCore(budget); }
+                finally { pendingCompletedMilliseconds = pendingWatch.Elapsed.TotalMilliseconds; }
+            });
+            return true;
+        }
+        public ProbeResult PollQuery() {
+            if (pending == null || delivered) return null;
+            bool completed = pending.IsCompleted;
+            // Judge the worker's completion time, not the time this loop next polls.
+            // A late success must not evade the deadline; an on-time result remains
+            // valid even if dispatch/system load delayed the caller's next poll.
+            if (completed && pendingCompletedMilliseconds <= pendingTimeout) { delivered = true; return pending.GetAwaiter().GetResult(); }
+            if (!completed && pendingWatch.Elapsed.TotalMilliseconds < pendingTimeout) return null;
+            double elapsed = completed ? pendingCompletedMilliseconds : pendingWatch.Elapsed.TotalMilliseconds;
+            bool connected = Volatile.Read(ref pendingConnected) != 0;
+            double connection = connected ? pendingConnectionMilliseconds : elapsed;
+            delivered = true; Abort();
+            return new ProbeResult {
+                QueryStatus = "timeout", QueryExitCode = 1, QueryError = "Monitor probe deadline exceeded.",
+                ConnectionMilliseconds = connection, QueryMilliseconds = connected ? Math.Max(0, elapsed - connection) : 0
+            };
+        }
         public ProbeResult Query(int timeoutMilliseconds) {
+            if (!BeginQuery(timeoutMilliseconds)) return new ProbeResult { QueryStatus = "timeout", QueryExitCode = 1, QueryError = "Previous monitor probe is still stopping." };
+            pending.Wait(Math.Max(1, timeoutMilliseconds));
+            return PollQuery();
+        }
+        ProbeResult QueryCore(int timeoutMilliseconds) {
             var result = new ProbeResult { QueryStatus = "error", QueryExitCode = 1 };
             var timer = Stopwatch.StartNew();
             bool connected = false;
             using (var timeout = new CancellationTokenSource(Math.Max(1, timeoutMilliseconds))) {
                 try {
-                    if (socket == null) {
-                        socket = new ClientWebSocket();
-                        socket.Options.Proxy = null;
-                        socket.ConnectAsync(address, timeout.Token).GetAwaiter().GetResult();
+                    ClientWebSocket connection;
+                    lock (gate) {
+                        if (disposed) throw new ObjectDisposedException("MonitorProbe");
+                        if (socket == null) { socket = new ClientWebSocket(); socket.Options.Proxy = null; }
+                        connection = socket;
                     }
+                    if (connection.State == WebSocketState.None) connection.ConnectAsync(address, timeout.Token).GetAwaiter().GetResult();
                     result.ConnectionMilliseconds = timer.Elapsed.TotalMilliseconds;
+                    pendingConnectionMilliseconds = pendingWatch.Elapsed.TotalMilliseconds;
+                    Volatile.Write(ref pendingConnected, 1);
                     connected = true;
                     timer.Restart();
                     byte[] command = Encoding.UTF8.GetBytes("query monitors");
-                    socket.SendAsync(new ArraySegment<byte>(command), WebSocketMessageType.Text, true, timeout.Token).GetAwaiter().GetResult();
+                    connection.SendAsync(new ArraySegment<byte>(command), WebSocketMessageType.Text, true, timeout.Token).GetAwaiter().GetResult();
                     using (var output = new MemoryStream()) {
                         var buffer = new byte[8192];
                         WebSocketReceiveResult message;
                         do {
-                            message = socket.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token).GetAwaiter().GetResult();
+                            message = connection.ReceiveAsync(new ArraySegment<byte>(buffer), timeout.Token).GetAwaiter().GetResult();
                             if (message.MessageType == WebSocketMessageType.Close) throw new IOException("GlazeWM disconnected.");
                             output.Write(buffer, 0, message.Count);
                             if (output.Length > 8 * 1024 * 1024) throw new IOException("Response exceeded 8 MiB.");
@@ -80,7 +126,7 @@ namespace Dotfiles.Desktop {
                 } catch (Exception ex) {
                     result.QueryStatus = timeout.IsCancellationRequested ? "timeout" : "error";
                     result.QueryError = ex.Message;
-                    Dispose();
+                    Abort();
                 } finally {
                     if (connected) result.QueryMilliseconds = timer.Elapsed.TotalMilliseconds;
                     else result.ConnectionMilliseconds = timer.Elapsed.TotalMilliseconds;
@@ -88,15 +134,46 @@ namespace Dotfiles.Desktop {
             }
             return result;
         }
-        public void Dispose() { if (socket != null) { socket.Abort(); socket.Dispose(); socket = null; } }
+        void Abort() { lock (gate) { if (socket != null) { socket.Abort(); socket.Dispose(); socket = null; } } }
+        public void Dispose() { lock (gate) { disposed = true; Abort(); } }
     }
 
+    public sealed class WindowSnapshot {
+        public long Handle, RootHandle;
+        public int ProcessId, SessionId, Left, Top, Right, Bottom;
+        public string ProcessName, ClassName;
+        public bool Visible, Topmost, Cloaked;
+    }
     public static class StartupWindows {
         delegate bool EnumProc(IntPtr window, IntPtr data);
         [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc callback, IntPtr data);
         [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int count);
         [DllImport("user32.dll")] static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] static extern bool IsWindow(IntPtr window);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr window, int index);
+        [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+        [DllImport("user32.dll")] static extern bool GetCursorPos(out Point point);
+        [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point point);
+        [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
+        public static WindowSnapshot DescribeWindow(long handle) {
+            if (handle == 0) { Point point; GetCursorPos(out point); handle = WindowFromPoint(point).ToInt64(); }
+            var window = new IntPtr(handle);
+            if (!IsWindow(window)) throw new ArgumentException("Window does not exist.");
+            window = GetAncestor(window, 2);
+            uint pid; GetWindowThreadProcessId(window, out pid);
+            var name = new StringBuilder(256); GetClassName(window, name, name.Capacity);
+            NativeRect rect; GetWindowRect(window, out rect);
+            int cloaked; DwmGetWindowAttribute(window, 14, out cloaked, sizeof(int));
+            using (var process = Process.GetProcessById((int)pid)) return new WindowSnapshot {
+                Handle = handle, RootHandle = window.ToInt64(), ProcessId = (int)pid, SessionId = process.SessionId,
+                ProcessName = process.ProcessName, ClassName = name.ToString(), Visible = IsWindowVisible(window),
+                Topmost = (GetWindowLong(window, -20) & 8) != 0, Cloaked = cloaked != 0,
+                Left = rect.Left, Top = rect.Top, Right = rect.Right, Bottom = rect.Bottom
+            };
+        }
         public static bool EverythingResponds(int process) {
             bool ready = false;
             EnumWindows((window, unused) => {

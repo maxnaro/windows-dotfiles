@@ -3,17 +3,17 @@ general:
   # script or launching another application.
   # Example: The below command launches Zebar.
   startup_commands:
-    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -CompanionsOnly'
+    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --companions'
 
   # Commands to run just before the WM is shutdown.
   # Example: The below command kills Zebar.
   shutdown_commands:
-    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Start-Desktop.ps1" -StopCompanions'
+    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --stop'
 
   # Commands to run after the WM config is reloaded.
   config_reload_commands:
-    - 'shell-exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-TitleBars.ps1" -Restart'
-    - 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1" -Restart'
+    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --title-bars-restart'
+    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --flow-restart'
 
   # Whether to automatically focus windows underneath the cursor.
   focus_follows_cursor: false

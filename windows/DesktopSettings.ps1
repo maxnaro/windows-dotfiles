@@ -1,5 +1,6 @@
 # Shared helpers. Dot-source from the configuration scripts.
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'HelperCache.ps1')
 
 function New-SettingsBackup {
     param([string]$Name)
@@ -145,7 +146,7 @@ function Register-DesktopStartup {
             if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Launcher executable not found: $exe" }
         }
     }
-    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs')) {
+    foreach ($file in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-DesktopLauncher.ps1', 'Get-DesktopWindow.ps1')) {
         if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $file) -PathType Leaf)) { throw "Startup source missing: $file" }
     }
     $backup = New-SettingsBackup 'startup-task'
@@ -154,10 +155,9 @@ function Register-DesktopStartup {
 
     New-Item -ItemType Directory -Path $LauncherDirectory -Force | Out-Null
     # Install the implementation before switching the compatible CMD entry point.
-    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs')) {
+    foreach ($file in @('Start-Desktop.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'HelperCache.ps1', 'DesktopRuntime.cs', 'Start-DesktopLauncher.ps1', 'Get-DesktopWindow.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $LauncherDirectory -Force
     }
-    . (Join-Path $PSScriptRoot 'HelperCache.ps1')
     Initialize-DesktopRuntime -Directory $LauncherDirectory -Build
     $launcherPath = Join-Path $LauncherDirectory 'Start-GlazeWM.vbs'
     $action = New-ScheduledTaskAction -Execute (Join-Path $env:WINDIR 'System32\wscript.exe') `

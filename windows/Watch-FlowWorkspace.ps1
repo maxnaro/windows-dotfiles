@@ -94,6 +94,7 @@ try {
             Version = [Dotfiles.FlowWorkspace.Bridge]::Version
             SourceSha256 = $script:flowWorkspaceSourceHash
         } | ConvertTo-Json | Set-Content -LiteralPath $statusPath -Encoding UTF8
+        if (-not (Test-DesktopSession $PSScriptRoot $StartupGeneration)) { return }
         [Dotfiles.FlowWorkspace.Bridge]::Run($stopEvent, $LogPath, $readyEvent)
     } finally {
         $null = $readyEvent.Reset()

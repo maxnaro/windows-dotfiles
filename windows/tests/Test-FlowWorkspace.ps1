@@ -39,6 +39,17 @@ foreach ($commands in @("  startup_commands: ['shell-exec zebar']", "  startup_c
     if ($fixture.Contains('zebar')) { Assert-True ($updated.Contains('zebar')) 'Targeted update removed an existing startup command.' }
 }
 
+$launcher = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+$tracked = Get-Content -LiteralPath (Join-Path $windows 'config.yaml') -Raw
+foreach ($row in @(@('startup_commands', '--flow-start'), @('shutdown_commands', '--flow-stop'), @('config_reload_commands', '--flow-restart'))) {
+    Assert-True ((Add-FlowWorkspaceCommand $tracked $row[0] ($launcher + ' ' + $row[1])) -eq $tracked) 'Minimized lifecycle installation added a duplicate helper/orchestrator.'
+}
+$legacy = 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1"'
+$legacyConfig = "general:`r`n  startup_commands: ['shell-exec fixture', '$legacy']`r`n  shutdown_commands: ['$legacy -Stop']`r`n  config_reload_commands: ['$legacy -Restart']`r`nworkspaces: []`r`n"
+$migrated = Update-FlowWorkspaceLauncher $legacyConfig
+Assert-True ($migrated.Contains('--flow-start') -and $migrated.Contains('--flow-stop') -and $migrated.Contains('--flow-restart') -and $migrated.Contains('shell-exec fixture') -and -not $migrated.Contains($legacy)) 'Known helper migration changed unrelated commands or lost lifecycle switches.'
+Assert-True ((Update-FlowWorkspaceLauncher $migrated) -eq $migrated) 'Minimized helper migration was not idempotent.'
+
 Assert-True ([Dotfiles.FlowWorkspace.Bridge]::ClassifyKey(13, $true, $false, $false, $false, $false) -eq 'commit') 'Enter did not arm a Flow result.'
 Assert-True ([Dotfiles.FlowWorkspace.Bridge]::ClassifyKey(13, $true, $false, $false, $true, $false) -eq 'none') 'Opening Flow context menu was mistaken for a launch.'
 Assert-True ([Dotfiles.FlowWorkspace.Bridge]::ClassifyKey(27, $true, $false, $false, $false, $false) -eq 'dismiss') 'Escape did not preserve origin for dismissal.'
@@ -199,9 +210,9 @@ try {
     & (Join-Path $windows 'Apply.ps1') -MonitorCount 2 -NoRestart -WithoutZebar -WallpaperMode None
     $config = Get-Content -LiteralPath (Join-Path $installed 'config.yaml') -Raw
     Assert-True (-not $config.Contains("- 'shell-exec zebar'")) 'WithoutZebar still starts Zebar.'
-    Assert-True ($config.Contains('Watch-FlowWorkspace.ps1') -and $config.Contains('-Restart') -and $config.Contains('-Stop')) 'Helper lifecycle commands were lost.'
+    Assert-True ($config.Contains('Start-GlazeWM.vbs') -and $config.Contains('--flow-restart') -and $config.Contains('--stop')) 'Minimized helper lifecycle commands were lost.'
     Assert-True ($config.Contains("name: '6', bind_to_monitor: 1")) 'Monitor assignments changed.'
-    foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Watch-TitleBars.ps1', 'TitleBars.cs')) {
+    foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Watch-TitleBars.ps1', 'TitleBars.cs', 'Start-DesktopLauncher.ps1', 'Start-GlazeWM.vbs')) {
         Assert-True ([IO.File]::ReadAllText((Join-Path $installed $name)) -eq [IO.File]::ReadAllText((Join-Path $windows $name))) "Helper installation differs: $name"
     }
     $desktopPath = Join-Path $installed 'desktop-startup.json'
@@ -211,7 +222,42 @@ try {
     $desktop.TitleBarsEnabled = $false
     [IO.File]::WriteAllText($desktopPath, ($desktop | ConvertTo-Json))
     [IO.File]::WriteAllText((Join-Path $installed 'FlowWorkspace.cs'), '// previous version')
-    & (Join-Path $windows 'Apply.ps1') -MonitorCount 1 -NoRestart -WallpaperMode None
+    $pack = Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor'
+    $marker = Join-Path $pack 'previous-widget-marker.txt'
+    [IO.File]::WriteAllText($marker, 'previous widget assets')
+    # Match live Zebar's directory lock without launching or stopping Zebar.
+    $holderInfo = New-Object Diagnostics.ProcessStartInfo
+    $holderInfo.FileName = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $holderInfo.Arguments = '-NoProfile -NonInteractive -Command "Start-Sleep -Seconds 60"'
+    $holderInfo.WorkingDirectory = $pack
+    $holderInfo.UseShellExecute = $false
+    $holderInfo.CreateNoWindow = $true
+    $holder = [Diagnostics.Process]::Start($holderInfo)
+    try {
+        & {
+            # Fail after assets were replaced. Rollback must recover the previous
+            # pack without attempting to remove the held working directory.
+            function Copy-Item {
+                [CmdletBinding()]
+                param([string]$LiteralPath, [string]$Destination, [switch]$Force)
+                if ($LiteralPath -eq (Join-Path $windows 'settings.json') -and $Destination -eq (Join-Path $env:USERPROFILE '.glzr\zebar\settings.json')) {
+                    throw 'fixture failure after widget replacement'
+                }
+                Microsoft.PowerShell.Management\Copy-Item @PSBoundParameters
+            }
+            $failure = ''
+            try { & (Join-Path $windows 'Apply.ps1') -MonitorCount 1 -NoRestart -WallpaperMode None }
+            catch { $failure = $_.Exception.Message }
+            Assert-True ($failure -eq 'fixture failure after widget replacement') "Rollback masked the original error: $failure"
+            Assert-True (([IO.File]::ReadAllText($marker)) -eq 'previous widget assets') 'Rollback did not recover the previous widget pack under a directory lock.'
+        }
+        & (Join-Path $windows 'Apply.ps1') -MonitorCount 1 -NoRestart -WallpaperMode None
+        Assert-True (-not (Test-Path -LiteralPath $marker)) 'Successful replacement retained obsolete widget assets.'
+        Assert-True (-not $holder.HasExited) 'Installation terminated the directory-holding process.'
+    } finally {
+        if (-not $holder.HasExited) { $holder.Kill(); $null = $holder.WaitForExit(5000) }
+        $holder.Dispose()
+    }
     $config = Get-Content -LiteralPath (Join-Path $installed 'config.yaml') -Raw
     Assert-True ((Get-Content -LiteralPath (Join-Path $env:USERPROFILE '.glzr\glazewm\desktop-startup.json') -Raw | ConvertFrom-Json).ZebarEnabled) 'Normal installation omitted Zebar.'
     Assert-True (-not (Get-Content $desktopPath -Raw | ConvertFrom-Json).TitleBarsEnabled) 'Reinstall lost the title-bar opt-out.'

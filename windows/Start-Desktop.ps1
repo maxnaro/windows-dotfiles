@@ -61,6 +61,14 @@ function New-StartupApplication {
     }
 }
 
+function Format-StartupProcess {
+    param($Process)
+    # Bootstrap/duplicate processes can exit before their metadata is queried.
+    try { $started = $Process.StartTime.ToUniversalTime().ToString('o') }
+    catch { $started = 'unavailable (process may have exited)' }
+    return "PID $($Process.Id), started $started"
+}
+
 function Start-StartupApplication {
     param($App)
     $App.Dispatched = $true
@@ -73,7 +81,11 @@ function Start-StartupApplication {
         Write-StartupStatus "$($App.Name): launching $($App.Exe)"
         $options = @{ FilePath = $App.Exe; WorkingDirectory = (Split-Path -Parent $App.Exe); ErrorAction = 'Stop' }
         if ($App.Arguments) { $options.ArgumentList = $App.Arguments }
-        Start-Process @options
+        $process = Start-Process @options -PassThru
+        if ($process) {
+            try { Write-StartupStatus "$($App.Name): dispatched $(Format-StartupProcess $process)." }
+            finally { $process.Dispose() }
+        }
     } catch {
         $App.Failed = $true
         $App.Detail = $_.Exception.Message
@@ -83,6 +95,7 @@ function Start-StartupApplication {
 
 function Get-FlowStartupStatus {
     param([string]$LogDirectory, [datetime]$ProcessStart)
+    if (-not (Get-Variable flowLogCursors -Scope Script -ErrorAction SilentlyContinue)) { $script:flowLogCursors = @{} }
     $started = $false
     $plugins = $false
     $files = @(Get-ChildItem -LiteralPath $LogDirectory -Filter '*.log' -ErrorAction SilentlyContinue |
@@ -93,22 +106,37 @@ function Get-FlowStartupStatus {
         # Correlate markers to the application process, not the short-lived Scoop bootstrapper.
         # Flow keeps its active log open for writing; allow concurrent writes and rotation.
         $stream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
-        $reader = $null
-        try {
-            $reader = New-Object IO.StreamReader($stream)
-            $lines = $reader.ReadToEnd() -split '\r?\n'
-        } finally {
-            if ($reader) { $reader.Dispose() }
-            $stream.Dispose()
+        $key = $file.FullName + ':' + $ProcessStart.ToUniversalTime().Ticks
+        if (-not $script:flowLogCursors.ContainsKey($key) -or $stream.Length -lt $script:flowLogCursors[$key].Offset -or
+            $script:flowLogCursors[$key].Created -ne $file.CreationTimeUtc.Ticks) {
+            $script:flowLogCursors[$key] = @{ Offset = 0L; Partial = ''; Started = $false; Plugins = $false; Error = $false; Created = $file.CreationTimeUtc.Ticks }
         }
+        $cursor = $script:flowLogCursors[$key]
+        try {
+            $stream.Position = $cursor.Offset
+            $buffer = New-Object byte[] 65536
+            $count = $stream.Read($buffer, 0, $buffer.Length)
+            $cursor.Offset = $stream.Position
+            $text = $cursor.Partial + [Text.Encoding]::UTF8.GetString($buffer, 0, $count)
+            $lines = $text -split '\r?\n'
+            $cursor.Partial = $lines[-1]
+            # Bound malformed unterminated lines as well as bytes read per poll.
+            if ($cursor.Partial.Length -gt 8192) { $cursor.Partial = $cursor.Partial.Substring($cursor.Partial.Length - 8192) }
+            $lines = @($lines | Select-Object -SkipLast 1)
+        } finally { $stream.Dispose() }
         foreach ($line in $lines) {
             if ($line -notmatch '^(\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})\s+-') { continue }
-            $time = [DateTimeOffset]::Parse($day + 'T' + $Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+            $timestamp = $day + 'T' + $Matches[1]
+            [DateTimeOffset]$time = [DateTimeOffset]::MinValue
+            if (-not [DateTimeOffset]::TryParse($timestamp, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$time)) { continue }
             if ($time.UtcDateTime -lt $ProcessStart.ToUniversalTime()) { continue }
-            if ($line -match '(?i)(error|fatal).*hot.?key|hot.?key.*(fail|error)') { return 'hotkey registration failed; inspect the Flow log' }
-            if ($line.Contains('App.OnStartup - End Flow Launcher startup')) { $started = $true }
-            if ($line.Contains('App.OnStartup - End plugin initialization')) { $plugins = $true }
+            if ($line -match '(?i)(error|fatal).*hot.?key|hot.?key.*(fail|error)') { $cursor.Error = $true }
+            if ($line.Contains('App.OnStartup - End Flow Launcher startup')) { $cursor.Started = $true }
+            if ($line.Contains('App.OnStartup - End plugin initialization')) { $cursor.Plugins = $true }
         }
+        if ($cursor.Error) { return 'hotkey registration failed; inspect the Flow log' }
+        $started = $started -or $cursor.Started
+        $plugins = $plugins -or $cursor.Plugins
     }
     if ($started -and $plugins) { return 'ready' }
     if ($started) { return 'waiting for plugin initialization' }
@@ -119,9 +147,17 @@ function Get-StartupApplicationStatus {
     param($App, [string]$Cli, [int]$TimeoutMilliseconds)
     if ($App.Kind -eq 'GlazeWM') {
         if (-not $script:startupMonitorProbe) { Initialize-StartupWindows; $script:startupMonitorProbe = New-Object Dotfiles.Desktop.MonitorProbe }
-        $result = $script:startupMonitorProbe.Query($TimeoutMilliseconds)
+        if (-not $script:startupProbePending) {
+            if ($script:startupMonitorProbe.BeginQuery($TimeoutMilliseconds)) { $script:startupProbePending = $true }
+        }
+        $result = $script:startupMonitorProbe.PollQuery()
+        if (-not $result) { return $script:startupMonitorDetail }
+        $script:startupProbePending = $false
         if ($result.QueryStatus -eq 'ok') { return 'ready' }
-        return "monitor query $($result.QueryStatus): $($result.QueryError)"
+        $processes = @(Get-StartupApplicationProcess $App)
+        $presence = if ($processes.Count) { 'process present' } else { 'application process absent' }
+        $script:startupMonitorDetail = "monitor query $($result.QueryStatus): $($result.QueryError) ($presence)"
+        return $script:startupMonitorDetail
     }
     $processes = @(Get-StartupApplicationProcess $App)
     if ($App.Kind -eq 'Flow') {
@@ -149,8 +185,28 @@ function Start-StartupScript {
     $log = Join-Path $Directory ($Script.Replace('.ps1', '-startup.log'))
     $command = "& '" + $entry.Replace("'", "''") + "'" + $Arguments + " *> '" + $log.Replace("'", "''") + "'"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') `
-        -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded) -WindowStyle Hidden
+    return (Start-DesktopPowerShell $encoded)
+}
+
+function Get-StartupStageStatus {
+    param($Stage)
+    if (-not $Stage.Process) { return 'failed: helper process was not returned' }
+    $Stage.Process.Refresh()
+    $exited = $Stage.Process.HasExited
+    if ($exited -and $Stage.Process.ExitCode -ne 0) {
+        return "failed: helper exited ($($Stage.Process.ExitCode)); inspect helper log"
+    }
+    # A duplicate child may exit cleanly while the existing singleton stays ready.
+    # An old ready signal must not conceal a failing replacement child.
+    try {
+        $event = [Threading.EventWaitHandle]::OpenExisting($Stage.ReadyEvent)
+        try { if ($event.WaitOne(0)) { return 'ready' } } finally { $event.Dispose() }
+    } catch [Threading.WaitHandleCannotBeOpenedException] { }
+    if ($exited) {
+        if ($Stage.Process.ExitCode -eq 0 -and -not $Stage.ResidentRequired) { return 'completed (no resident helper required)' }
+        return "failed: helper exited ($($Stage.Process.ExitCode)); inspect helper log"
+    }
+    return 'waiting for helper readiness'
 }
 
 function Start-StartupDiagnostics {
@@ -162,12 +218,11 @@ function Start-StartupDiagnostics {
     New-Item -ItemType Directory -Path $output -Force | Out-Null
     $prefix = Join-Path $output ((Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '-collector')
     # Redirect inside the child, so its log handles remain valid after this host exits.
-    # ShellExecute (no parent-side redirection or -NoNewWindow) gives it a separate hidden console.
+    # CREATE_NO_WINDOW prevents a console; child-side log handles outlive this host.
     $command = '& {{ $ErrorActionPreference = ''Stop''; try {{ & ''{0}'' -OutputDirectory ''{1}'' }} catch {{ Write-Error $_ -ErrorAction Continue; exit 1 }} }} *> ''{2}''' -f `
         $collector.Replace("'", "''"), $output.Replace("'", "''"), ($prefix + '.log').Replace("'", "''")
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    $collectorProcess = Start-Process -FilePath (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') `
-        -ArgumentList ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded) -WindowStyle Hidden -PassThru
+    $collectorProcess = Start-DesktopPowerShell $encoded
     Write-StartupStatus "Diagnostics: started independently (PID $($collectorProcess.Id)); captures: $output; collector log: $prefix.log"
     $collectorProcess.Dispose()
 }
@@ -176,17 +231,21 @@ function Invoke-DesktopStartup {
     param([string]$Cli, [string]$Directory = $PSScriptRoot, [ValidateRange(1, 300)][int]$TimeoutSeconds = 45, [switch]$CompanionsOnly, [double]$StageScale = 1)
     $script:startupWatch = [Diagnostics.Stopwatch]::StartNew()
     $script:startupMonitorProbe = $null
+    $script:startupProbePending = $false
+    $script:startupMonitorDetail = 'monitor query pending'
+    $script:flowLogCursors = @{}
+    $stages = @()
     $script:startupLog = Join-Path $Directory 'startup.log'
     $mutex = New-Object Threading.Mutex($false, 'Local\DotfilesDesktopStartup')
     $locked = $false
     $stopEvent = $null
     try {
+        $revision = Get-DesktopSessionRevision $Directory
         try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
         if (-not $locked) { Write-Host 'Desktop startup is already in progress; skipping this invocation.'; return 0 }
         $stopEvent = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, 'Local\DotfilesDesktopStartupStop')
-        $null = $stopEvent.Reset()
-        $script:startupGeneration = [guid]::NewGuid().ToString('N')
-        Set-DesktopSession $Directory $script:startupGeneration $true
+        $script:startupGeneration = Start-DesktopGeneration $Directory $revision $stopEvent
+        if (-not $script:startupGeneration) { Write-StartupStatus 'Shutdown cancelled startup activation.'; return 0 }
         Write-StartupStatus "Desktop startup invoked. Log: $script:startupLog"
         if ([string]::IsNullOrWhiteSpace($Cli) -or -not (Test-Path -LiteralPath $Cli -PathType Leaf)) {
             throw "GlazeWM CLI not found: $Cli"
@@ -239,6 +298,16 @@ function Invoke-DesktopStartup {
                 $stages.Add([pscustomobject]@{ Name = 'Wallpaper'; At = 15 * $StageScale; Done = $false; Script = 'Wallpaper.ps1'; Arguments = ' -Run' })
             }
         }
+        $session = (Get-Process -Id $PID).SessionId
+        foreach ($stage in $stages) {
+            $prefix = switch ($stage.Name) { 'Title bars' { 'TitleBars' }; 'Workspace helper' { 'FlowWorkspace' }; 'Wallpaper' { 'Wallpaper' } }
+            $resident = $stage.Name -eq 'Workspace helper' -or ($stage.Name -eq 'Title bars' -and $desktop.PSObject.Properties['TitleBarsEnabled'] -and $desktop.TitleBarsEnabled)
+            $stage | Add-Member NoteProperty ResidentRequired ([bool]$resident)
+            $stage | Add-Member NoteProperty ReadyEvent "Local\Dotfiles${prefix}Ready-$session"
+            $stage | Add-Member NoteProperty Process $null
+            $stage | Add-Member NoteProperty Ready $false
+            $stage | Add-Member NoteProperty Failed $false
+        }
         $windowsReady = $false
         $nextProgress = 0.0
         while ($script:startupWatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
@@ -254,12 +323,19 @@ function Invoke-DesktopStartup {
                 $stage = $item.Stage
                 $stage.Done = $true
                 try {
-                    Start-StartupScript $Directory $stage.Script $stage.Arguments
-                    Write-StartupStatus "$($stage.Name): dispatched (details in helper log)."
-                } catch { Write-StartupStatus "WARNING $($stage.Name): $($_.Exception.Message)" }
+                    $stage.Process = Start-StartupScript $Directory $stage.Script $stage.Arguments
+                    $owner = if ($stage.Process) { " $(Format-StartupProcess $stage.Process)." } else { '' }
+                    Write-StartupStatus "$($stage.Name): dispatched.$owner Details in helper log."
+                } catch { $stage.Failed = $true; Write-StartupStatus "ERROR $($stage.Name): $($_.Exception.Message)" }
+            }
+            foreach ($stage in @($stages | Where-Object { $_.Done -and -not $_.Ready -and -not $_.Failed })) {
+                try { $status = Get-StartupStageStatus $stage }
+                catch { $status = 'failed: ' + $_.Exception.Message }
+                if ($status -eq 'ready' -or $status -like 'completed*') { $stage.Ready = $true; Write-StartupStatus "$($stage.Name): $status." }
+                elseif ($status -like 'failed:*') { $stage.Failed = $true; Write-StartupStatus "ERROR $($stage.Name): $status." }
             }
             $pending = @($apps | Where-Object { $_.Dispatched -and -not $_.Ready -and -not $_.Failed })
-            if (-not $pending.Count -and -not @($apps | Where-Object { -not $_.Dispatched }).Count -and -not @($stages | Where-Object { -not $_.Done }).Count) { break }
+            if (-not @($stages | Where-Object { -not $_.Ready -and -not $_.Failed }).Count -and -not $pending.Count -and -not @($apps | Where-Object { -not $_.Dispatched }).Count -and -not @($stages | Where-Object { -not $_.Done }).Count) { break }
             foreach ($app in $pending) {
                 $remaining = $TimeoutSeconds - $script:startupWatch.Elapsed.TotalSeconds
                 if ($remaining -le 0) { break }
@@ -283,7 +359,7 @@ function Invoke-DesktopStartup {
                 $nextProgress = $script:startupWatch.Elapsed.TotalSeconds + 5
             }
             $remaining = $TimeoutSeconds - $script:startupWatch.Elapsed.TotalSeconds
-            if ($remaining -gt 0 -and (@($apps | Where-Object { -not $_.Ready -and -not $_.Failed }).Count -or @($stages | Where-Object { -not $_.Done }).Count)) {
+            if ($remaining -gt 0 -and (@($apps | Where-Object { -not $_.Ready -and -not $_.Failed }).Count -or @($stages | Where-Object { -not $_.Ready -and -not $_.Failed }).Count)) {
                 Start-Sleep -Milliseconds ([int][Math]::Min(500, $remaining * 1000))
             }
         }
@@ -291,7 +367,11 @@ function Invoke-DesktopStartup {
             $app.Failed = $true
             Write-StartupStatus "ERROR $($app.Name): readiness not confirmed within $TimeoutSeconds seconds ($($app.Detail)). Application left running."
         }
-        if ($configurationFailed -or @($apps | Where-Object { $_.Failed -and -not $_.Optional }).Count) {
+        foreach ($stage in @($stages | Where-Object { -not $_.Ready -and -not $_.Failed })) {
+            $stage.Failed = $true
+            Write-StartupStatus "ERROR $($stage.Name): readiness not confirmed within $TimeoutSeconds seconds; inspect helper log."
+        }
+        if ($configurationFailed -or @($apps | Where-Object { $_.Failed -and -not $_.Optional }).Count -or @($stages | Where-Object Failed).Count) {
             Write-StartupStatus "Startup incomplete. Inspect $script:startupLog and Flow's UserData\Logs for details."
             return 1
         }
@@ -305,6 +385,7 @@ function Invoke-DesktopStartup {
         return 1
     } finally {
         if ($script:startupMonitorProbe) { $script:startupMonitorProbe.Dispose(); $script:startupMonitorProbe = $null }
+        foreach ($stage in $stages) { if ($stage.PSObject.Properties['Process'] -and $stage.Process) { $stage.Process.Dispose() } }
         if ($stopEvent) { $stopEvent.Dispose() }
         if ($locked) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
@@ -313,15 +394,17 @@ function Invoke-DesktopStartup {
 
 if ($MyInvocation.InvocationName -ne '.') {
     if ($StopCompanions) {
-        Set-DesktopSession $PSScriptRoot '' $false
-        try { $stop = [Threading.EventWaitHandle]::OpenExisting('Local\DotfilesDesktopStartupStop'); try { $null = $stop.Set() } finally { $stop.Dispose() } }
-        catch [Threading.WaitHandleCannotBeOpenedException] { }
-        & (Join-Path $PSScriptRoot 'Watch-TitleBars.ps1') -Stop -WaitForStop
-        & (Join-Path $PSScriptRoot 'Wallpaper.ps1') -Stop
-        & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Stop
+        Stop-DesktopGeneration $PSScriptRoot
+        $stopFailed = $false
+        foreach ($helper in @('Watch-TitleBars.ps1', 'Wallpaper.ps1', 'Watch-FlowWorkspace.ps1')) {
+            try {
+                if ($helper -eq 'Wallpaper.ps1') { & (Join-Path $PSScriptRoot $helper) -Stop }
+                else { & (Join-Path $PSScriptRoot $helper) -Stop -WaitForStop }
+            } catch { $stopFailed = $true; Write-Warning "$helper shutdown failed: $($_.Exception.Message)" }
+        }
         $session = (Get-Process -Id $PID).SessionId
         Get-Process -Name zebar -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session } | Stop-Process
-        exit 0
+        exit ([int]$stopFailed)
     }
     if (-not $GlazeCli) {
         $scoop = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE 'scoop' }

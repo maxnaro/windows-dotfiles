@@ -14,8 +14,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Validate the desktop/.NET Framework host before Scoop or settings changes.
+. (Join-Path $PSScriptRoot 'windows\HelperCache.ps1')
 
-# Use a normal PowerShell window; Scoop and these settings are per-user.
+# Use a normal Windows PowerShell 5.1 window; Scoop and these settings are per-user.
 if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
     throw 'Install Scoop first using the instructions in README.md, then rerun setup.ps1.'
 }

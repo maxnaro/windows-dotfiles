@@ -74,12 +74,15 @@ public class DotfilesStartupFakeCli {
     }
 
     Copy-Item (Join-Path $windows 'Start-GlazeWM.vbs') $entryDirectory
+    Copy-Item (Join-Path $windows 'Start-DesktopLauncher.ps1') $entryDirectory
     foreach ($exitCode in @('0', '7')) {
         $env:DOTFILES_STARTUP_ENTRY_EXIT = $exitCode
         $hidden = Start-Process (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('//B //Nologo "{0}" "{1}"' -f (Join-Path $entryDirectory 'Start-GlazeWM.vbs'), $cli) -PassThru
         try {
-            Assert-True ($hidden.WaitForExit(10000)) 'Hidden launcher did not finish.'
-            Assert-True ($hidden.ExitCode -eq [int]$exitCode) 'Hidden launcher changed the exit code or CLI path.'
+            Assert-True ($hidden.WaitForExit(10000)) 'Minimized launcher did not close.'
+            $hostLog = Join-Path $entryDirectory 'desktop-launcher.log'
+            $detail = if (Test-Path $hostLog) { Get-Content $hostLog -Raw } else { '(no launcher error log)' }
+            Assert-True ($hidden.ExitCode -eq [int]$exitCode) "Minimized launcher changed exit code/CLI path (expected $exitCode, got $($hidden.ExitCode)); $detail"
         } finally { if (-not $hidden.HasExited) { $hidden.Kill() }; $hidden.Dispose() }
     }
 
@@ -96,7 +99,7 @@ public class DotfilesStartupFakeCli {
         function Initialize-StartupWindows { }
         function Start-StartupDiagnostics { param($Directory); $script:startupEvents.Add('diagnostics') }
         function Start-Process {
-            param($FilePath, $WorkingDirectory, $ArgumentList, $ErrorAction)
+            param($FilePath, $WorkingDirectory, $ArgumentList, $ErrorAction, [switch]$PassThru)
             $name = [IO.Path]::GetFileNameWithoutExtension($FilePath)
             $script:startupEvents.Add('launch:' + $name)
             if ($name -eq $script:failLaunch) { throw 'fixture launch failed' }
@@ -150,6 +153,8 @@ public class DotfilesStartupFakeCli {
         [IO.File]::WriteAllText((Join-Path $directory 'desktop-startup.json'), '{"ZebarEnabled":true,"WallpaperMode":"Overlay"}')
         $script:stagedEvents = New-Object 'Collections.Generic.List[string]'
         $script:cancelStage = $false
+        $script:stageFailure = $false
+        $script:stagePending = $false
         function Get-StartupApplicationProcess { param($App) }
         function Initialize-StartupWindows { }
         function Start-StartupDiagnostics { param($Directory) }
@@ -163,6 +168,12 @@ public class DotfilesStartupFakeCli {
             }
         }
         function Start-StartupScript { param($Directory, $Script, $Arguments); $script:stagedEvents.Add($Script) }
+        function Get-StartupStageStatus {
+            param($Stage)
+            if ($Stage.Name -eq 'Workspace helper' -and $script:stageFailure) { return 'failed: fixture helper exited' }
+            if ($Stage.Name -eq 'Workspace helper' -and $script:stagePending) { return 'waiting for helper readiness' }
+            return 'ready'
+        }
         function Get-StartupApplicationStatus { param($App, $Cli, $TimeoutMilliseconds); return 'ready' }
         Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02) -eq 0) 'Staged startup failed.'
         $events = $script:stagedEvents -join ','
@@ -172,10 +183,34 @@ public class DotfilesStartupFakeCli {
         $script:stagedEvents.Clear()
         Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02 -CompanionsOnly) -eq 0) 'Manual companion startup failed.'
         Assert-True (-not $script:stagedEvents.Contains('GlazeWM')) 'Companion-only entry point launched GlazeWM again.'
+        $script:stageFailure = $true
+        Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02) -eq 1) 'Helper failure was reported as startup complete.'
+        $script:stageFailure = $false; $script:stagePending = $true
+        Assert-True ((Invoke-DesktopStartup $cli $directory 1 -StageScale 0.02) -eq 1) 'Helper dispatch was mistaken for readiness.'
+        $script:stagePending = $false
         $script:stagedEvents.Clear(); $script:cancelStage = $true
         Assert-True ((Invoke-DesktopStartup $cli $directory 3 -StageScale 0.02) -eq 0) 'Shutdown cancellation failed.'
         Assert-True (-not $script:stagedEvents.Contains('Flow') -and -not $script:stagedEvents.Contains('Wallpaper.ps1')) 'Shutdown allowed delayed helpers to start.'
     }
+
+    # Helper readiness must distinguish a resident singleton from an exited child.
+    $readyName = 'Local\DotfilesStageFixture-' + [guid]::NewGuid()
+    $ready = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, $readyName)
+    try {
+        $process = [pscustomobject]@{ HasExited = $false; ExitCode = 0 }
+        $process | Add-Member ScriptMethod Refresh { }
+        $stage = [pscustomobject]@{ Name = 'Workspace helper'; Process = $process; ResidentRequired = $true; ReadyEvent = $readyName }
+        Assert-True ((Get-StartupStageStatus $stage) -like 'waiting*') 'Running helper without a ready signal was accepted.'
+        $null = $ready.Set(); $process.HasExited = $true
+        Assert-True ((Get-StartupStageStatus $stage) -eq 'ready') 'A reused ready singleton was rejected when its duplicate exited.'
+        $process.ExitCode = 7
+        Assert-True ((Get-StartupStageStatus $stage) -like 'failed:*') 'An old ready signal concealed a failing replacement helper.'
+        $process.ExitCode = 0
+        $null = $ready.Reset()
+        Assert-True ((Get-StartupStageStatus $stage) -like 'failed:*') 'An early helper exit was accepted.'
+        $stage.ResidentRequired = $false
+        Assert-True ((Get-StartupStageStatus $stage) -like 'completed*') 'An explicitly non-resident helper was rejected.'
+    } finally { $ready.Dispose() }
 
     # Current-process Flow logs, including locked files, bootstrap handoff, and midnight rotation.
     $logDirectory = Join-Path (Split-Path -Parent $flow) 'app-2.1.4\UserData\Logs\2.1.4'
@@ -205,6 +240,26 @@ public class DotfilesStartupFakeCli {
     }
     Write-FlowFixtureLine ($start.AddSeconds(3)) 'ERROR hotkey registration failed'
     Assert-True ((Get-FlowStartupStatus $logDirectory $start.UtcDateTime) -like 'hotkey registration failed*') 'Hotkey registration error was ignored.'
+
+    # Large logs are consumed incrementally, including a split/unterminated marker.
+    $largeLogs = Join-Path $testRoot 'large-flow-logs'
+    New-Item -ItemType Directory -Path $largeLogs | Out-Null
+    $largeLog = Join-Path $largeLogs 'Flow.Launcher.2026-01-16.log'
+    $marker = '00:00:02.0000+01:00 - INFO - App.OnStartup - '
+    [IO.File]::WriteAllText($largeLog, (('x' * 65535) + "`n" + $marker + "End plugin initialization`n" + $marker + 'End Flow Launcher startup'))
+    Assert-True ((Get-FlowStartupStatus $largeLogs $start.UtcDateTime) -ne 'ready') 'Flow log read exceeded its per-poll byte budget.'
+    Assert-True ((Get-FlowStartupStatus $largeLogs $start.UtcDateTime) -eq 'waiting for Flow initialization') 'An incomplete trailing log line was accepted.'
+    [IO.File]::AppendAllText($largeLog, "`n")
+    Assert-True ((Get-FlowStartupStatus $largeLogs $start.UtcDateTime) -eq 'ready') 'A split Flow marker was lost.'
+    [IO.File]::WriteAllText($largeLog, ($marker + "End plugin initialization`n"))
+    Assert-True ((Get-FlowStartupStatus $largeLogs $start.UtcDateTime) -ne 'ready') 'Truncated Flow log retained stale readiness markers.'
+
+    # A malformed timestamp must not discard valid markers from the same read.
+    $malformedLogs = Join-Path $testRoot 'malformed-flow-log'
+    New-Item -ItemType Directory -Path $malformedLogs | Out-Null
+    $malformedLog = Join-Path $malformedLogs 'Flow.Launcher.2026-01-16.log'
+    [IO.File]::WriteAllText($malformedLog, ("99:99:99+01:00 - invalid timestamp`n" + $marker + "End plugin initialization`n" + $marker + "End Flow Launcher startup`n"))
+    Assert-True ((Get-FlowStartupStatus $malformedLogs $start.UtcDateTime) -eq 'ready') 'Malformed Flow timestamp discarded later readiness markers.'
 
     # A different thread owns the session mutex while this invocation tries to enter.
     $worker = [PowerShell]::Create()
@@ -240,8 +295,8 @@ public class DotfilesStartupFakeCli {
             Assert-True ($Trigger.Delay -eq 'PT10S' -and $Principal.RunLevel -eq 'Limited') 'Task timing or privileges changed.'
             Assert-True ($Settings.Priority -eq 6) 'Interactive startup must use normal priority.'
             Assert-True ($Settings.MultipleInstances -eq 'IgnoreNew') 'Task permits duplicate invocations.'
-            Assert-True ($Action.Execute -like '*\wscript.exe') 'Task must use the console-free launcher.'
-            Assert-True ($Action.Arguments.Contains('Start-GlazeWM.vbs')) 'Task omitted hidden launcher.'
+            Assert-True ($Action.Execute -eq (Join-Path $env:WINDIR 'System32\wscript.exe')) 'Task must use the installed Windows script host.'
+            Assert-True ($Action.Arguments.Contains('Start-GlazeWM.vbs') -and $Action.Arguments.StartsWith('//B //Nologo ')) 'Task omitted the minimized launcher.'
             Assert-True ($Action.Arguments.Contains($cli)) 'Task omitted the quoted CLI argument.'
         }
         Register-DesktopStartup -ScoopRoot $scoop -LauncherDirectory $installed -StartupDirectory $shortcuts -Diagnostics
@@ -251,7 +306,7 @@ public class DotfilesStartupFakeCli {
         Assert-True ((Read-SettingJson $config).ScoopRoot -eq $scoop) 'Legacy launcher opt-in was not migrated.'
         foreach ($name in $names) { Assert-True (-not (Test-Path -LiteralPath (Join-Path $shortcuts $name))) 'Migrated shortcut remains active.' }
         Assert-True (Test-Path -LiteralPath (Join-Path $shortcuts 'Keep.lnk')) 'Unrelated shortcut was removed.'
-        foreach ($name in @('Start-Desktop.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1')) {
+        foreach ($name in @('Start-Desktop.ps1', 'Start-DesktopLauncher.ps1', 'Start-GlazeWM.cmd', 'Start-GlazeWM.vbs', 'Measure-GlazeWMStartup.ps1')) {
             Assert-True (Test-Path -LiteralPath (Join-Path $installed $name)) 'Startup implementation was not installed.'
         }
         Register-DesktopStartup -ScoopRoot $scoop -LauncherDirectory $installed -StartupDirectory $shortcuts
@@ -301,7 +356,7 @@ public class DotfilesStartupFakeCli {
 param([string]$OutputDirectory)
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class StartupCollectorWindow { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd); }'
 $handle = [StartupCollectorWindow]::GetConsoleWindow()
-[pscustomobject]@{ Pid = $PID; Visible = [StartupCollectorWindow]::IsWindowVisible($handle) } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'started.json')
+[pscustomobject]@{ Pid = $PID; Handle = $handle.ToInt64(); Visible = [StartupCollectorWindow]::IsWindowVisible($handle) } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'started.json')
 Start-Sleep -Seconds 4
 Write-Host 'collector output after parent exit'
 Set-Content -LiteralPath (Join-Path $OutputDirectory 'completed.txt') -Value 'complete'
@@ -324,7 +379,7 @@ Set-Content -LiteralPath (Join-Path $OutputDirectory 'completed.txt') -Value 'co
         while (-not (Test-Path -LiteralPath $done) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
         Assert-True (Test-Path -LiteralPath $done) 'Collector did not survive parent exit.'
         $info = Read-SettingJson (Join-Path $detached 'diagnostics\started.json')
-        Assert-True (-not $info.Visible) 'Diagnostic collector console is visible.'
+        Assert-True (-not $info.Visible -and $info.Handle -eq 0) 'Diagnostic collector created a console.'
         $logs = @(Get-ChildItem -LiteralPath (Join-Path $detached 'diagnostics') -Filter '*-collector.log')
         Assert-True ($logs.Count -eq 1 -and (Get-Content -LiteralPath $logs[0].FullName -Raw).Contains('collector output after parent exit')) 'Collector output was lost after parent exit.'
     } finally { $parentProcess.Dispose() }

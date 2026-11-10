@@ -14,6 +14,19 @@ try {
     Assert-True (-not (Test-DesktopSession $testRoot 'generation-two')) 'A stale helper generation was accepted.'
     Set-DesktopSession $testRoot '' $false
     Assert-True (-not (Test-DesktopSession $testRoot 'generation-one')) 'A delayed child was allowed after shutdown.'
+    # Stop before event creation/activation is durable, not lost to Reset().
+    $eventName = 'Local\DotfilesStartupFixture-' + [guid]::NewGuid()
+    $revision = Get-DesktopSessionRevision $testRoot
+    Stop-DesktopGeneration $testRoot $eventName
+    $fixtureStop = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, $eventName)
+    try {
+        Assert-True (-not (Start-DesktopGeneration $testRoot $revision $fixtureStop)) 'A stop before event creation was erased by startup activation.'
+        $revision = Get-DesktopSessionRevision $testRoot
+        $generation = Start-DesktopGeneration $testRoot $revision $fixtureStop
+        Assert-True (Test-DesktopSession $testRoot $generation) 'A new invocation after shutdown could not activate.'
+        Stop-DesktopGeneration $testRoot $eventName
+        Assert-True ($fixtureStop.WaitOne(0) -and -not (Test-DesktopSession $testRoot $generation)) 'Stop did not atomically signal and retire the active generation.'
+    } finally { $fixtureStop.Dispose() }
     Initialize-DesktopRuntime -Directory $testRoot -Build
     $memory = [Dotfiles.Desktop.Performance]::Memory()
     Assert-True ($memory.CommitLimit -gt 0 -and $memory.CommittedBytes -gt 0) 'Native memory statistics are unavailable.'
@@ -31,12 +44,57 @@ try {
             $expected = if ($mode -in @('ok', 'fragmented')) { 'ok' } elseif ($mode -eq 'hang') { 'timeout' } elseif ($mode -eq 'failed') { 'failed' } else { 'error' }
             Assert-True ($result.QueryStatus -eq $expected) "Unexpected $mode result: $($result.QueryStatus): $($result.QueryError)"
             Assert-True ($timer.Elapsed.TotalSeconds -lt 3) 'WebSocket timeout exceeded its bound.'
+            if ($mode -eq 'hang' -and $server.Requests -gt 0) {
+                Assert-True ($result.QueryMilliseconds -gt 0) 'A response timeout was incorrectly attributed entirely to connection time.'
+            }
             if ($mode -eq 'ok') {
                 $null = $probe.Query(2000)
                 Assert-True ($server.Connections -eq 1 -and $server.Requests -eq 2) 'Monitor queries did not reuse the connection.'
             }
         } finally { $probe.Dispose(); $server.Dispose() }
     }
+    # Polling must not serialize the dispatch loop behind a stalled socket.
+    $server = New-Object StartupSocketFixture
+    $server.Mode = 'hang'
+    $probe = New-Object Dotfiles.Desktop.MonitorProbe("ws://127.0.0.1:$($server.Port)")
+    try {
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        Assert-True ($probe.BeginQuery(250)) 'Async monitor probe did not start.'
+        Assert-True ($timer.ElapsedMilliseconds -lt 100) 'Starting a readiness probe blocked dispatch.'
+        $iterations = 0; $result = $null
+        while (-not $result -and $timer.ElapsedMilliseconds -lt 1500) {
+            $iterations++; $result = $probe.PollQuery(); Start-Sleep -Milliseconds 20
+        }
+        Assert-True ($result.QueryStatus -eq 'timeout' -and $iterations -gt 1) 'Stalled readiness did not allow dispatch/cancellation work between polls.'
+    } finally { $probe.Dispose(); $server.Dispose() }
+    # Deterministic deadline classification, independent of timer/thread scheduling:
+    # inject a late completion timestamp after a successful loopback response.
+    $server = New-Object StartupSocketFixture
+    $probe = New-Object Dotfiles.Desktop.MonitorProbe("ws://127.0.0.1:$($server.Port)")
+    try {
+        $flags = [Reflection.BindingFlags]'Instance,NonPublic'
+        $pendingField = $probe.GetType().GetField('pending', $flags)
+        $completedField = $probe.GetType().GetField('pendingCompletedMilliseconds', $flags)
+        $null = $probe.BeginQuery(2000)
+        $task = $pendingField.GetValue($probe)
+        Assert-True ($task.Wait(3000) -and $task.Result.QueryStatus -eq 'ok') 'Deadline fixture did not receive a successful response.'
+        $completedField.SetValue($probe, [double]2001)
+        Assert-True ($probe.PollQuery().QueryStatus -eq 'timeout') 'An overdue successful worker result bypassed the probe deadline.'
+        $null = $probe.BeginQuery(2000)
+        $task = $pendingField.GetValue($probe)
+        Assert-True ($task.Wait(3000) -and $task.Result.QueryStatus -eq 'ok') 'Probe did not reconnect after an overdue response.'
+        # A busy orchestrator may not poll until after the budget has expired.
+        Start-Sleep -Milliseconds 2100
+        Assert-True ($probe.PollQuery().QueryStatus -eq 'ok') 'An on-time response was rejected merely because the caller polled late.'
+    } finally { $probe.Dispose(); $server.Dispose() }
+    Add-Type -AssemblyName System.Windows.Forms
+    $form = New-Object Windows.Forms.Form
+    try {
+        $form.Text = 'DO NOT PERSIST PRIVATE WINDOW TITLE'
+        $snapshot = [Dotfiles.Desktop.StartupWindows]::DescribeWindow($form.Handle.ToInt64())
+        Assert-True ($snapshot.ProcessId -eq $PID -and $snapshot.ClassName -like 'WindowsForms10.*') 'Window ownership snapshot was incorrect.'
+        Assert-True (-not $form.Visible -and -not (($snapshot | ConvertTo-Json) -match 'PRIVATE WINDOW TITLE')) 'Window snapshot activated a window or leaked its title.'
+    } finally { $form.Dispose() }
     $crop = [Dotfiles.Desktop.WallpaperWindow]::Cover([Drawing.Size]::new(200, 100), [Drawing.Size]::new(100, 100))
     Assert-True ($crop.X -eq -50 -and $crop.Y -eq 0 -and $crop.Width -eq 200) 'Wallpaper crop changed proportions or centring.'
     & {
@@ -102,6 +160,7 @@ try {
             & (Join-Path $windows 'Measure-GlazeWMStartup.ps1') -DurationSeconds 1 -IntervalSeconds 1 -ProbeTransport Cli -OutputDirectory $output
             $records = @(Get-Content -LiteralPath (Get-ChildItem $output -Filter '*.jsonl')[0].FullName | ForEach-Object { $_ | ConvertFrom-Json })
             $sample = @($records | Where-Object Event -eq sample)[0]
+            Assert-True ($sample.ProbeCompletedAt -and $sample.ProbeCompletedElapsedSeconds -ge $sample.ElapsedSeconds) 'Probe completion time was not recorded.'
             Assert-True ($sample.Memory[0].CommitLimit -gt 0 -and $sample.Disk[0].DiskBytesPersec -eq 123) 'One unavailable counter suppressed other samples.'
             Assert-True ($sample.Processes[0].Host -eq 'zebar.exe') 'The collector did not record attributed processes.'
             Assert-True ($sample.PerformanceErrors.Cpu -match 'unavailable' -and $sample.PerformanceErrors.Paging -match 'unavailable') 'Counter failures were not recorded separately.'

@@ -72,6 +72,8 @@ try {
         finally { $sample.QueryMilliseconds = [Math]::Round($latency.Elapsed.TotalMilliseconds, 1); $probe.Dispose() }
         }
 
+        $sample.ProbeCompletedAt = (Get-Date).ToString('o')
+        $sample.ProbeCompletedElapsedSeconds = [Math]::Round($watch.Elapsed.TotalSeconds, 3)
         if (-not $SkipPerformanceCounters) {
             $errors = [ordered]@{}
             try { $sample.Memory = @([Dotfiles.Desktop.Performance]::Memory()) }

@@ -11,7 +11,11 @@ function Add-FlowWorkspaceCommand {
     if (-not $match.Success) { throw "Missing general.$Field in GlazeWM config." }
     $remaining = $Config.Substring($match.Index)
     $block = [regex]::Match($remaining, '(?ms)^.*?(?=\r?\n  [a-z_]+:|\r?\n[a-z_]+:|\z)').Value
-    if ($block.Contains('Watch-FlowWorkspace.ps1') -or ($Field -in @('startup_commands', 'shutdown_commands') -and $block.Contains('Start-Desktop.ps1'))) { return $Config }
+    $orchestrated = ($Field -eq 'startup_commands' -and $block.Contains('--companions')) -or
+        ($Field -eq 'shutdown_commands' -and $block.Contains('--stop'))
+    if ($block.Contains($Command) -or $block.Contains('Watch-FlowWorkspace.ps1') -or
+        ($Field -in @('startup_commands', 'shutdown_commands') -and $block.Contains('Start-Desktop.ps1')) -or
+        ($orchestrated -and $block.Contains('Start-GlazeWM.vbs'))) { return $Config }
     $value = $match.Groups['value'].Value.Trim()
     $quoted = "'" + $Command.Replace("'", "''") + "'"
     if ($value.StartsWith('[') -and $value.EndsWith(']')) {
@@ -21,6 +25,13 @@ function Add-FlowWorkspaceCommand {
         $replacement = $match.Value + "`r`n    - " + $quoted
     } else { throw "Unsupported general.$Field value; expected an inline or indented YAML list." }
     return $Config.Substring(0, $match.Index) + $replacement + $Config.Substring($match.Index + $match.Length)
+}
+function Update-FlowWorkspaceLauncher {
+    param([string]$Config)
+    $legacy = 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1"'
+    $launch = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+    # Only migrate the known dotfiles helper command; preserve unrelated hooks.
+    return $Config.Replace(($legacy + ' -Restart'), ($launch + ' --flow-restart')).Replace(($legacy + ' -Stop'), ($launch + ' --flow-stop')).Replace($legacy, ($launch + ' --flow-start'))
 }
 if ($MyInvocation.InvocationName -eq '.') { return }
 
@@ -39,10 +50,11 @@ $cli = Join-Path $scoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
 if (-not $NoRestart -and -not (Test-Path -LiteralPath $cli)) { throw "GlazeWM CLI not found: $cli" }
 & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Check
 $config = [IO.File]::ReadAllText($configPath)
-$launch = 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1"'
-$config = Add-FlowWorkspaceCommand $config 'startup_commands' $launch
-$config = Add-FlowWorkspaceCommand $config 'shutdown_commands' ($launch + ' -Stop')
-$config = Add-FlowWorkspaceCommand $config 'config_reload_commands' ($launch + ' -Restart')
+$launch = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+$config = Update-FlowWorkspaceLauncher $config
+$config = Add-FlowWorkspaceCommand $config 'startup_commands' ($launch + ' --flow-start')
+$config = Add-FlowWorkspaceCommand $config 'shutdown_commands' ($launch + ' --flow-stop')
+$config = Add-FlowWorkspaceCommand $config 'config_reload_commands' ($launch + ' --flow-restart')
 $backup = New-SettingsBackup 'flow-workspace'
 Write-Host "Flow workspace backup: $backup"
 # Stop the running version before replacing either source file. A config reload
@@ -54,7 +66,7 @@ $settings = Read-SettingJson $settingsPath
 Set-JsonProperty $settings 'SearchWindowScreen' 'Focus'
 Update-WindowWalkerSettings $settings (Split-Path -Parent (Split-Path -Parent $settingsPath))
 Write-SettingText $settingsPath ($settings | ConvertTo-Json -Depth 50)
-foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'HelperCache.ps1')) {
+foreach ($name in @('Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'HelperCache.ps1', 'Start-DesktopLauncher.ps1', 'Start-GlazeWM.vbs')) {
     Write-SettingText (Join-Path $installed $name) ([IO.File]::ReadAllText((Join-Path $PSScriptRoot $name)))
 }
 & (Join-Path $installed 'Watch-FlowWorkspace.ps1') -Build

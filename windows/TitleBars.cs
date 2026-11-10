@@ -68,7 +68,7 @@ namespace Dotfiles {
    Run(stop,path,"ws://127.0.0.1:6123",0);
   }
   // Explicit endpoint and owner make lifecycle tests independent of the desktop.
-  public static void Run(EventWaitHandle stop,string path,string endpoint,int ownerId) {
+  public static void Run(EventWaitHandle stop,string path,string endpoint,int ownerId,EventWaitHandle ready = null) {
    var records=new List<Record>();int delay=1000;
    try {
     while(!stop.WaitOne(0)) {
@@ -121,6 +121,7 @@ namespace Dotfiles {
         RestoreRecords(removed);
         records.RemoveAll(r=>!handles.Contains(r.Handle) && !removed.Contains(r));
         if(removedCount>0)Save(path,records);
+        if(ready!=null)ready.Set();
        }
       }
      }catch(Exception error){Log(path,error.Message);Restore(path,records);if(stop.WaitOne(delay))return;delay=Math.Min(delay*2,30000);}

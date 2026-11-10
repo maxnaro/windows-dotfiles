@@ -68,15 +68,22 @@ function Test-DesktopWallpaperOverlayRequired {
 function Stop-DesktopWallpaper {
     param([switch]$Wait)
     $session = (Get-Process -Id $PID).SessionId
-    try {
-        $event = [Threading.EventWaitHandle]::OpenExisting("Local\DotfilesWallpaperStop-$session")
-        try { $null = $event.Set() } finally { $event.Dispose() }
-    } catch [Threading.WaitHandleCannotBeOpenedException] { }
+    function Send-WallpaperStop {
+        try {
+            $event = [Threading.EventWaitHandle]::OpenExisting("Local\DotfilesWallpaperStop-$session")
+            try { $null = $event.Set() } finally { $event.Dispose() }
+        } catch [Threading.WaitHandleCannotBeOpenedException] { }
+    }
+    Send-WallpaperStop
     if ($Wait) {
         $mutex = New-Object Threading.Mutex($false, "Local\DotfilesWallpaper-$session")
         $locked = $false
         try {
-            try { $locked = $mutex.WaitOne(5000) } catch [Threading.AbandonedMutexException] { $locked = $true }
+            $deadline = [datetime]::UtcNow.AddSeconds(5)
+            do {
+                Send-WallpaperStop
+                try { $locked = $mutex.WaitOne(100) } catch [Threading.AbandonedMutexException] { $locked = $true }
+            } while (-not $locked -and [datetime]::UtcNow -lt $deadline)
             if (-not $locked) { throw 'Wallpaper overlay did not stop within five seconds.' }
         } finally { if ($locked) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
     }
@@ -98,6 +105,10 @@ try {
     if (-not (Test-DesktopWallpaperOverlayRequired $config)) { return }
     $stopEvent = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, "Local\DotfilesWallpaperStop-$session")
     $readyEvent = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, "Local\DotfilesWallpaperReady-$session")
-    try { $null = $stopEvent.Reset(); $null = $readyEvent.Reset(); [Dotfiles.Desktop.WallpaperOverlay]::Run($config.WallpaperPath, $stopEvent, $readyEvent) }
+    try {
+        $null = $readyEvent.Reset()
+        if (-not (Test-DesktopSession $Directory $StartupGeneration)) { return }
+        [Dotfiles.Desktop.WallpaperOverlay]::Run($config.WallpaperPath, $stopEvent, $readyEvent)
+    }
     finally { $null = $readyEvent.Reset(); $readyEvent.Dispose(); $stopEvent.Dispose() }
 } finally { if ($locked) { $mutex.ReleaseMutex() }; $mutex.Dispose() }
