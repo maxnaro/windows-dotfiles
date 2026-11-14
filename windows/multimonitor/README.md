@@ -9,7 +9,7 @@ monitor. All bar variants share local Lucide SVG icons through `icons.js` and
 ### `wallpaper`
 
 Coniston photo filling every monitor behind application windows. Uses the local
-`resources/coniston.jpg` image and passes desktop clicks through the native
+`modules/theme/assets/coniston.jpg` image (copied into the installed pack as `resources/coniston.jpg`) and passes desktop clicks through the native
 window. This does not modify Windows wallpaper policies.
 
 ### `vanilla`
@@ -26,3 +26,5 @@ For use with [Komorebi](https://github.com/LGUG2Z/komorebi).
 
 The GlazeWM dock also appears while either Alt key is held, with all sections visible.
 It hides 1.2 seconds after release. Workspaces stay at monitor center; side sections fit their content.
+
+For a source-tree preview without running installation, copy `modules/theme/generated/desktop.css` to `windows/multimonitor/desktop.css` and `modules/theme/assets/coniston.jpg` to `windows/multimonitor/resources/coniston.jpg`. Setup performs both copies in the installed pack.

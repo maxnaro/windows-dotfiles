@@ -14,6 +14,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'windows\ThemeAssets.ps1')
+$null = Get-ThemeAssets $PSScriptRoot
 # Validate the desktop/.NET Framework host before Scoop or settings changes.
 . (Join-Path $PSScriptRoot 'windows\HelperCache.ps1')
 

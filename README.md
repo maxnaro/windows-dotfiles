@@ -200,8 +200,8 @@ the `:root` block of `windows/multimonitor/styles.css`:
 ```
 
 The Utopia stack includes `Utopia`, `Utopia Std`, and `Adobe Utopia`; adjust the
-family name to match your installed font if needed. The palette also lives in
-that `:root` block; matching window borders are in `windows/config.yaml`.
+family name to match your installed font if needed. The palette lives in `modules/theme/themes/desktop.json` and the generated
+`modules/theme/generated/desktop.css`; matching window borders are in `windows/config.yaml`.
 
 Apply appearance changes from a Windows PowerShell window with:
 
@@ -232,9 +232,9 @@ saved original wallpaper when switching from native mode. Subsequent runs retain
 an explicitly chosen mode when `-WallpaperMode` is omitted. `-WithoutZebar` only
 disables the bar; combine it with `-WallpaperMode None` for a minimal baseline.
 
-The image is copied from `windows/multimonitor/resources/coniston.jpg` to
+The image is copied from `modules/theme/assets/coniston.jpg` to
 `%USERPROFILE%\.glzr\glazewm\wallpaper.jpg`, independently of Zebar. Replace the
-source image and rerun Apply to change it. Original per-monitor wallpaper paths,
+shared source image and rerun Apply to change it. Original per-monitor wallpaper paths,
 position and background colour are backed up before a native change. In Auto
 mode, sign-in verifies the effective wallpaper and uses an overlay if Windows
 has replaced it; it does not repeatedly reapply native wallpaper.
@@ -458,6 +458,7 @@ startup managed by it.
 Validate the configuration helpers and diagnostic timeout handling with:
 
 ```powershell
+.\windows\tests\Test-ThemeAssets.ps1
 .\windows\tests\Test-PowerShellHost.ps1
 .\windows\tests\Test-DesktopSettings.ps1
 .\windows\tests\Test-Startup.ps1
@@ -661,3 +662,5 @@ repeating the script when Focus mode is already set makes no changes.
 
 For an existing window, use `Ctrl+Shift+P` → **Toggle focus mode**. Repeat to show
 its title bar and tabs again.
+
+The shared theme is a Git submodule. After cloning, run `git submodule update --init --recursive` before setup. Windows copies its committed generated CSS, wallpaper and Flow Launcher theme into the installed directories; Python is not required.

@@ -24,7 +24,7 @@ Assert-True ($settings.QueryBoxFontSize -eq 18 -and $settings.ResultItemFontSize
     $settings.ResultSubItemFontSize -eq 12) 'Flow font sizes are incorrect.'
 $themePath = Join-Path $data 'Themes\Chocolatier.xaml'
 Assert-True ([IO.File]::ReadAllText($themePath) -eq
-    [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'flow-launcher\Chocolatier.xaml'))) 'Installed theme differs from the tracked theme.'
+    [IO.File]::ReadAllText((Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules\theme\assets\Chocolatier.xaml'))) 'Installed theme differs from the tracked theme.'
 Assert-True ($explorer.IndexSearchEngine -eq 1) 'Flow is not using Everything.'
 Assert-True (Test-Path -LiteralPath $explorer.EverythingInstalledPath) 'Flow cannot find Everything.'
 Assert-True (@(Get-Service -Name Everything -ErrorAction SilentlyContinue).Count -eq 0) 'An Everything service is installed; this test expects the service-free configuration.'

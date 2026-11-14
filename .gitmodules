@@ -1,3 +1,6 @@
 [submodule "windows/plugins/flow-glazewm"]
 	path = windows/plugins/flow-glazewm
 	url = https://github.com/maxnaro/flow-glazewm.git
+[submodule "modules/theme"]
+	path = modules/theme
+	url = https://github.com/maxnaro/dotfiles-theme.git
