@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param([switch]$NoStart)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ThemeAssets.ps1')
+$themeAssets = Get-ThemeAssets (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $PSScriptRoot 'DesktopSettings.ps1')
 $scoopRoot = if ($env:SCOOP) { $env:SCOOP } else { Join-Path $env:USERPROFILE 'scoop' }
 $flowRoot = Join-Path $scoopRoot 'apps\flow-launcher\current'
@@ -76,7 +78,7 @@ $settingsPath = Join-Path $flowData 'Settings\Settings.json'
 $settings = Read-SettingJson $settingsPath
 # Keep custom themes in portable UserData so Flow updates retain them.
 $themePath = Join-Path $flowData 'Themes\Chocolatier.xaml'
-Write-SettingText $themePath ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'flow-launcher\Chocolatier.xaml')))
+Write-SettingText $themePath ([IO.File]::ReadAllText($themeAssets.Launcher))
 Set-JsonProperty $settings 'Theme' 'Chocolatier'
 Set-JsonProperty $settings 'UseClock' $false
 Set-JsonProperty $settings 'UseDate' $false

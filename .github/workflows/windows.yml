@@ -1,0 +1,26 @@
+name: Windows tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: PowerShell 5.1 fixtures
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($test in @('Test-ThemeAssets.ps1', 'Test-PowerShellHost.ps1', 'Test-DesktopSettings.ps1', 'Test-Startup.ps1', 'Test-StartupPerformance.ps1', 'Test-DesktopLauncher.ps1', 'Test-FlowWorkspace.ps1', 'Test-StandaloneStartup.ps1', 'Test-TitleBars.ps1')) {
+            & (Join-Path 'windows/tests' $test)
+            if (-not $?) { throw "$test failed" }
+          }
+      - name: Install bar test dependencies
+        working-directory: windows/multimonitor/vendor
+        run: npm ci
+      - name: Bar tests
+        working-directory: windows/multimonitor/vendor
+        run: npm test

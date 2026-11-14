@@ -1,3 +1,5 @@
+@import url("./desktop.css");
+
 :root {
   /* Chocolatier / Kimbie Dark+ palette, independent of the Windows theme.
    * https://github.com/qaptoR-nvim/chocolatier.nvim
@@ -15,19 +17,7 @@
   --text-size: 12px;
   --icon-size: 16px;
 
-  --background: #221a0f;
-  --bar-background: rgba(34, 26, 15, 0.78);
-  --surface: rgba(235, 194, 149, 0.05);
-  --surface-active: rgba(244, 170, 43, 0.12);
-  --border: rgba(235, 194, 149, 0.14);
-  --foreground: #d3af86;
-  --foreground-bright: #ebc295;
-  --foreground-muted: #aa8c6b;
-  --accent: #f4aa2b;
-  --orange: #f79a32;
-  --green: #889b4a;
-  --teal: #83a598;
-  --red: #f14a68;
+
 }
 
 .icon {
@@ -151,7 +141,7 @@ body,
 }
 
 .workspace.focused {
-  background: rgba(244, 170, 43, 0.16);
+  background: var(--workspace-active-surface);
   color: var(--accent);
   border-color: transparent;
   box-shadow: inset 0 -2px var(--accent);
@@ -243,13 +233,7 @@ button:focus-visible {
 .workspace-rail {
   --font-family: 'JetBrainsMono RunCat v7', 'JetBrainsMono NF',
     'JetBrainsMono Nerd Font', 'JetBrains Mono', 'Cascadia Mono', monospace;
-  --bar-background: #2a201a;
-  --foreground: #d3c6aa;
-  --foreground-bright: #f2e7c9;
-  --foreground-muted: #aa9c88;
-  --accent: #7ea69f;
-  --surface-active: rgba(126, 166, 159, 0.12);
-  --border: #7d6959;
+
 }
 
 .workspace-rail #root {
@@ -271,7 +255,7 @@ button:focus-visible {
   border: 1px solid var(--border);
   border-top: 0;
   border-radius: 0 0 12px 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 4px var(--workspace-shadow);
 }
 
 .workspace-rail .workspaces,
@@ -304,7 +288,7 @@ button:focus-visible {
 }
 .workspace-rail .clock { color: var(--foreground-bright); }
 .workspace-rail .battery-status .icon { color: inherit; }
-.workspace-rail .battery-status.low { color: #dc7062; }
+.workspace-rail .battery-status.low { color: var(--workspace-low); }
 .workspace-rail .battery-status.charging { color: var(--accent); }
 .workspace-rail .battery-status[hidden] { display: none; }
 
@@ -324,12 +308,12 @@ button:focus-visible {
 }
 
 .workspace-rail .workspace.displayed {
-  background: rgba(211, 198, 170, 0.07);
+  background: var(--workspace-displayed);
   color: var(--foreground);
 }
 
 .workspace-rail .workspace:hover {
-  background: rgba(211, 198, 170, 0.10);
+  background: var(--workspace-hover);
   color: var(--foreground-bright);
 }
 
@@ -375,10 +359,10 @@ button:focus-visible {
 .workspace-rail .workspace.displayed,
 .workspace-rail .workspace.focused {
   background: var(--accent);
-  color: #221a15;
+  color: var(--workspace-ink);
   font-weight: 600;
 }
-.workspace-rail .workspace.focused::before { background: #221a15; }
+.workspace-rail .workspace.focused::before { background: var(--workspace-ink); }
 .workspace-rail .clock-time { font-weight: 600; }
 .workspace-rail .clock-date { color: var(--foreground-muted); }
 

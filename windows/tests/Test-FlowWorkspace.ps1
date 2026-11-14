@@ -219,6 +219,13 @@ try {
     $desktop = Get-Content $desktopPath -Raw | ConvertFrom-Json
     Assert-True $desktop.TitleBarsEnabled 'Fresh installation did not enable title bars.'
     Assert-True (-not (Test-Path (Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor\vendor\node_modules'))) 'Widget development dependencies were installed.'
+    $theme = Join-Path (Split-Path -Parent $windows) 'modules\theme'
+    $pack = Join-Path $env:USERPROFILE '.glzr\zebar\multimonitor'
+    foreach ($pair in @(@('generated\desktop.css', 'desktop.css'), @('assets\coniston.jpg', 'resources\coniston.jpg'))) {
+        $sourceHash = (Get-FileHash -LiteralPath (Join-Path $theme $pair[0])).Hash
+        $installedHash = (Get-FileHash -LiteralPath (Join-Path $pack $pair[1])).Hash
+        Assert-True ($sourceHash -eq $installedHash) "Installed theme asset differs: $($pair[1])"
+    }
     $desktop.TitleBarsEnabled = $false
     [IO.File]::WriteAllText($desktopPath, ($desktop | ConvertTo-Json))
     [IO.File]::WriteAllText((Join-Path $installed 'FlowWorkspace.cs'), '// previous version')

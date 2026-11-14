@@ -9,6 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'ThemeAssets.ps1')
+$themeAssets = Get-ThemeAssets (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $PSScriptRoot 'DesktopSettings.ps1')
 . (Join-Path $PSScriptRoot 'HelperCache.ps1')
 . (Join-Path $PSScriptRoot 'Wallpaper.ps1')
@@ -109,13 +111,15 @@ try {
     }
     if ($hadPack) { Clear-WidgetPack $packPath }
     Copy-WidgetPack (Join-Path $PSScriptRoot 'multimonitor') $packPath
+    Copy-Item -LiteralPath $themeAssets.Css -Destination (Join-Path $packPath 'desktop.css') -Force
+    Copy-Item -LiteralPath $themeAssets.Wallpaper -Destination (Join-Path $packPath 'resources\coniston.jpg') -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Destination $settingsPath
     $installed = Split-Path -Parent $configPath
     # Build the installed Flow cache too; the source-side cache is used by targeted updates/tests.
     & (Join-Path $installed 'Watch-FlowWorkspace.ps1') -Build
     if (-not $NoRestart) { Stop-DesktopWallpaper -Wait }
     $image = Join-Path $installed 'wallpaper.jpg'
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'multimonitor\resources\coniston.jpg') -Destination $image -Force
+    Copy-Item -LiteralPath $themeAssets.Wallpaper -Destination $image -Force
     $desktop = Set-DesktopWallpaperConfiguration -Mode $WallpaperMode -ImagePath $image -Directory $installed -BackupDirectory $backupPath
     & (Join-Path $installed 'Watch-TitleBars.ps1') -Build
     $titleBarsEnabled = $true
