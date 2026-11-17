@@ -274,6 +274,10 @@ keybindings:
   - commands: ["shell-exec cmd"]
     bindings: ["alt+enter"]
 
+  # Open a new window in the default browser.
+  - commands: ['shell-exec powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%USERPROFILE%/.glzr/glazewm/Open-DefaultBrowser.ps1"']
+    bindings: ["alt+b"]
+
   # Focus the next/previous active workspace defined in `workspaces` config.
   - commands: ["focus --next-active-workspace"]
     bindings: ["alt+s"]

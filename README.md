@@ -145,6 +145,7 @@ number of monitors.
 - `Alt+Q` or `Alt+Shift+Q`: close the focused window normally, allowing save prompts.
 - `Alt+F4`: the standard Windows close-window shortcut also works.
 - `Alt+Space`: open Flow Launcher when configured, otherwise PowerToys Run.
+- `Alt+B`: open a new window in the default browser.
 - `Alt+C`: cycle focus between tiling, floating, and fullscreen windows.
 
 Zebar briefly shows a click-through workspace indicator at the top of a monitor
