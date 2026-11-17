@@ -39,7 +39,7 @@ foreach ($commands in @("  startup_commands: ['shell-exec zebar']", "  startup_c
     if ($fixture.Contains('zebar')) { Assert-True ($updated.Contains('zebar')) 'Targeted update removed an existing startup command.' }
 }
 
-$launcher = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+$launcher = 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs"'
 $tracked = Get-Content -LiteralPath (Join-Path $windows 'config.yaml') -Raw
 foreach ($row in @(@('startup_commands', '--flow-start'), @('shutdown_commands', '--flow-stop'), @('config_reload_commands', '--flow-restart'))) {
     Assert-True ((Add-FlowWorkspaceCommand $tracked $row[0] ($launcher + ' ' + $row[1])) -eq $tracked) 'Minimized lifecycle installation added a duplicate helper/orchestrator.'

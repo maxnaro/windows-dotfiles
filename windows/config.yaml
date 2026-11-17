@@ -3,17 +3,17 @@ general:
   # script or launching another application.
   # Example: The below command launches Zebar.
   startup_commands:
-    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --companions'
+    - 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs" --companions'
 
   # Commands to run just before the WM is shutdown.
   # Example: The below command kills Zebar.
   shutdown_commands:
-    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --stop'
+    - 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs" --stop'
 
   # Commands to run after the WM config is reloaded.
   config_reload_commands:
-    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --title-bars-restart'
-    - 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs" --flow-restart'
+    - 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs" --title-bars-restart'
+    - 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs" --flow-restart'
 
   # Whether to automatically focus windows underneath the cursor.
   focus_follows_cursor: false
@@ -101,7 +101,7 @@ window_effects:
       style: "square"
     transparency:
       enabled: true
-      opacity: "80%"
+      opacity: "98%"
 
 window_behavior:
   # New windows are created in this state whenever possible.
