@@ -73,7 +73,7 @@ New-Item -ItemType Directory -Path $backupPath | Out-Null
 $hadConfig = Test-Path -LiteralPath $configPath -PathType Leaf
 $hadSettings = Test-Path -LiteralPath $settingsPath -PathType Leaf
 $hadPack = Test-Path -LiteralPath $packPath -PathType Container
-$helperFiles = @('Open-DefaultBrowser.ps1', 'Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
+$helperFiles = @('Open-DefaultBrowser.ps1', 'Organize-GlazeWorkspaces.ps1', 'Watch-FlowWorkspace.ps1', 'FlowWorkspace.cs', 'Start-Desktop.ps1', 'HelperCache.ps1',
     'DesktopRuntime.cs', 'Start-DesktopLauncher.ps1', 'Start-GlazeWM.vbs', 'Get-DesktopWindow.ps1', 'TitleBars.cs', 'Watch-TitleBars.ps1', 'Wallpaper.ps1', 'Measure-GlazeWMStartup.ps1', 'StartupPerformance.ps1', 'desktop-startup.json', 'wallpaper.jpg', 'wallpaper-original.json')
 $script:settingsBackup = $backupPath
 $script:backupEntries = @()

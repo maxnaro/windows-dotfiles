@@ -281,6 +281,10 @@ keybindings:
       ]
     bindings: ["alt+b"]
 
+  # Sort open Teams, Outlook, browser, and terminal windows into workspaces.
+  - commands: ['shell-exec powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%USERPROFILE%/.glzr/glazewm/Organize-GlazeWorkspaces.ps1"']
+    bindings: ["alt+shift+o"]
+
   # Focus the next/previous active workspace defined in `workspaces` config.
   - commands: ["focus --next-active-workspace"]
     bindings: ["alt+s"]
