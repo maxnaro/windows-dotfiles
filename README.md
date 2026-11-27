@@ -142,9 +142,11 @@ number of monitors.
 - `Ctrl+Alt+H/L`: focus monitor 0/1 directly.
 - `Alt+1` through `Alt+9`: select a workspace.
 - `Alt+Shift+1` through `Alt+Shift+9`: move a window there and follow it.
+- `Alt+Shift+O`: sort open Teams and Outlook windows to workspace 1, browsers to 2, and terminals to 5.
 - `Alt+Q` or `Alt+Shift+Q`: close the focused window normally, allowing save prompts.
 - `Alt+F4`: the standard Windows close-window shortcut also works.
 - `Alt+Space`: open Flow Launcher when configured, otherwise PowerToys Run.
+- `Alt+B`: open a new window in the default browser.
 - `Alt+C`: cycle focus between tiling, floating, and fullscreen windows.
 
 Zebar briefly shows a click-through workspace indicator at the top of a monitor

@@ -29,8 +29,11 @@ function Add-FlowWorkspaceCommand {
 function Update-FlowWorkspaceLauncher {
     param([string]$Config)
     $legacy = 'shell-exec powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%USERPROFILE%/.glzr/glazewm/Watch-FlowWorkspace.ps1"'
-    $launch = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+    $launch = 'shell-exec wscript.exe //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs"'
     # Only migrate the known dotfiles helper command; preserve unrelated hooks.
+    $oldLaunch = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+    $previousLaunch = 'shell-exec "%WINDIR%\System32\wscript.exe" //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs"'
+    $Config = $Config.Replace($oldLaunch, $launch).Replace($previousLaunch, $launch)
     return $Config.Replace(($legacy + ' -Restart'), ($launch + ' --flow-restart')).Replace(($legacy + ' -Stop'), ($launch + ' --flow-stop')).Replace($legacy, ($launch + ' --flow-start'))
 }
 if ($MyInvocation.InvocationName -eq '.') { return }
@@ -50,7 +53,7 @@ $cli = Join-Path $scoopRoot 'apps\glazewm\current\cli\GlazeWM.exe'
 if (-not $NoRestart -and -not (Test-Path -LiteralPath $cli)) { throw "GlazeWM CLI not found: $cli" }
 & (Join-Path $PSScriptRoot 'Watch-FlowWorkspace.ps1') -Check
 $config = [IO.File]::ReadAllText($configPath)
-$launch = 'shell-exec "%WINDIR%/System32/wscript.exe" //B //Nologo "%USERPROFILE%/.glzr/glazewm/Start-GlazeWM.vbs"'
+$launch = 'shell-exec wscript.exe //B //Nologo "%USERPROFILE%\.glzr\glazewm\Start-GlazeWM.vbs"'
 $config = Update-FlowWorkspaceLauncher $config
 $config = Add-FlowWorkspaceCommand $config 'startup_commands' ($launch + ' --flow-start')
 $config = Add-FlowWorkspaceCommand $config 'shutdown_commands' ($launch + ' --flow-stop')
